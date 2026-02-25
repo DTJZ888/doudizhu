@@ -214,14 +214,6 @@
       outline: 2px solid #c49028;
     }
     .card-btn.selected { z-index: 30; }
-    body.dragging-select .card-img {
-      transition: none;
-      box-shadow: 0 3px 8px rgba(44, 33, 18, .18);
-    }
-    body.dragging-select .card-btn.selected .card-img {
-      transform: translateY(-6px);
-      box-shadow: 0 7px 12px rgba(42, 33, 19, .2);
-    }
     .red { color: #b61f1f; }
     .log {
       max-height: 180px;
@@ -705,7 +697,7 @@
         </div>
         <div style="margin-top: 8px;">
           <div class="small">你的手牌</div>
-          <div class="small muted">窄屏连选提示：拖动到左右边缘可自动滚动手牌。</div>
+          <div class="small muted">点选手牌进行选择，再点同一张可取消。</div>
           <div id="handCards"></div>
           <div id="handScrollWrap" class="hand-scroll-wrap">
             <input id="handScrollBar" type="range" min="0" max="0" step="1" value="0" aria-label="手牌滚动条" />
@@ -822,8 +814,6 @@
       playedRenderIds: [],
       playedRenderRoom: "",
       playedScrollRoom: "",
-      suppressCardClick: false,
-      dragSelectSession: null,
       landscapeUi: readStoredBool(LAYOUT_LANDSCAPE_KEY, false)
     };
 
@@ -3816,8 +3806,6 @@
         handCards.onpointermove = null;
         handCards.onpointerup = null;
         handCards.onpointercancel = null;
-        state.dragSelectSession = null;
-        document.body.classList.remove("dragging-select");
         updateHandScrollBar();
         syncPlaySelectedButton(false);
         return;
@@ -3870,10 +3858,6 @@
       buttons.forEach((btn) => {
         btn.addEventListener("click", () => {
           if (!canPlay) return;
-          if (state.suppressCardClick) {
-            state.suppressCardClick = false;
-            return;
-          }
           const id = btn.dataset.card;
           const changed = setSelected(id, !selectedSet.has(id));
           if (changed) {
@@ -3883,195 +3867,11 @@
           }
         });
       });
-
-      if (!canPlay) {
-        handCards.onpointerdown = null;
-        handCards.onpointermove = null;
-        handCards.onpointerup = null;
-        handCards.onpointercancel = null;
-        state.dragSelectSession = null;
-        document.body.classList.remove("dragging-select");
-        syncPlaySelectedButton(false);
-        return;
-      }
-
-      const applyDragSelect = (cardId) => {
-        const drag = state.dragSelectSession;
-        if (!drag || !cardId || drag.touched.has(cardId)) return false;
-        drag.touched.add(cardId);
-        drag.changed += setSelected(cardId, drag.mode === "add") ? 1 : 0;
-        return true;
-      };
-
-      const cardCenters = buttons.map((btn) => ({
-        id: btn.dataset.card || "",
-        center: btn.offsetLeft + (btn.offsetWidth / 2)
-      })).filter((v) => !!v.id);
-
-      const hitCardIndexByX = (clientX) => {
-        if (!cardCenters.length) return -1;
-        const rect = handCards.getBoundingClientRect();
-        const x = (clientX - rect.left) + handCards.scrollLeft;
-        let bestIndex = 0;
-        let bestDist = Math.abs(x - cardCenters[0].center);
-        for (let i = 1; i < cardCenters.length; i += 1) {
-          const d = Math.abs(x - cardCenters[i].center);
-          if (d < bestDist) {
-            bestDist = d;
-            bestIndex = i;
-          }
-        }
-        return bestIndex;
-      };
-
-      const hitCardIdByX = (clientX) => {
-        const idx = hitCardIndexByX(clientX);
-        if (idx < 0) return "";
-        return cardCenters[idx]?.id || "";
-      };
-
-      const applyDragToIndex = (targetIndex) => {
-        const drag = state.dragSelectSession;
-        if (!drag || targetIndex < 0 || targetIndex >= cardCenters.length) return false;
-        const startIndex = Number.isInteger(drag.lastIndex) ? drag.lastIndex : targetIndex;
-        const from = Math.min(startIndex, targetIndex);
-        const to = Math.max(startIndex, targetIndex);
-        let changed = false;
-        for (let i = from; i <= to; i += 1) {
-          const id = cardCenters[i]?.id;
-          if (!id) continue;
-          changed = applyDragSelect(id) || changed;
-        }
-        drag.lastIndex = targetIndex;
-        return changed;
-      };
-
-      const edgeAutoScroll = (clientX) => {
-        const maxScroll = Math.max(0, handCards.scrollWidth - handCards.clientWidth);
-        if (!maxScroll) return false;
-        const rect = handCards.getBoundingClientRect();
-        const edge = Math.max(28, Math.min(54, rect.width * 0.16));
-        let delta = 0;
-        if (clientX < rect.left + edge) {
-          delta = -Math.ceil((rect.left + edge - clientX) / 7);
-        } else if (clientX > rect.right - edge) {
-          delta = Math.ceil((clientX - (rect.right - edge)) / 7);
-        }
-        if (!delta) return false;
-        const prev = handCards.scrollLeft;
-        const next = Math.max(0, Math.min(maxScroll, prev + delta));
-        if (next === prev) return false;
-        handCards.scrollLeft = next;
-        return true;
-      };
-
-      handCards.onpointerdown = (evt) => {
-        if (!canPlay) return;
-        if (evt.pointerType === "mouse") return;
-        const startIndex = hitCardIndexByX(evt.clientX);
-        const id = cardCenters[startIndex]?.id || hitCardIdByX(evt.clientX);
-        if (!id) return;
-        state.dragSelectSession = {
-          pointerId: evt.pointerId,
-          mode: selectedSet.has(id) ? "remove" : "add",
-          touched: new Set(),
-          changed: 0,
-          lastMoveAt: 0,
-          lastIndex: startIndex,
-          pendingX: evt.clientX,
-          frameReq: 0,
-          startX: evt.clientX,
-          startY: evt.clientY,
-          startCardId: id,
-          isDragging: false,
-          captured: false
-        };
-        evt.preventDefault();
-      };
-
-      handCards.onpointermove = (evt) => {
-        const drag = state.dragSelectSession;
-        if (!drag || drag.pointerId !== evt.pointerId) return;
-        const dx = Math.abs(evt.clientX - drag.startX);
-        const dy = Math.abs(evt.clientY - drag.startY);
-        if (!drag.isDragging) {
-          if (dx < 12 && dy < 10) return;
-          if (dx < dy * 1.05) return;
-          drag.isDragging = true;
-          applyDragSelect(drag.startCardId);
-          flushSelectedState();
-          syncPlaySelectedButton(canPlay);
-          document.body.classList.add("dragging-select");
-          try {
-            handCards.setPointerCapture(evt.pointerId);
-            drag.captured = true;
-          } catch {
-            drag.captured = false;
-          }
-        }
-        drag.pendingX = evt.clientX;
-        if (drag.frameReq) return;
-        drag.frameReq = requestAnimationFrame(() => {
-          const liveDrag = state.dragSelectSession;
-          if (!liveDrag || liveDrag.pointerId !== drag.pointerId) return;
-          liveDrag.frameReq = 0;
-          const now = performance.now();
-          if (now - liveDrag.lastMoveAt < 10) return;
-          liveDrag.lastMoveAt = now;
-          let changed = false;
-          const beforeIdx = hitCardIndexByX(liveDrag.pendingX);
-          if (beforeIdx >= 0) changed = applyDragToIndex(beforeIdx) || changed;
-          const scrolled = edgeAutoScroll(liveDrag.pendingX);
-          if (scrolled) {
-            const afterIdx = hitCardIndexByX(liveDrag.pendingX);
-            if (afterIdx >= 0) changed = applyDragToIndex(afterIdx) || changed;
-          }
-          if (changed) {
-            flushSelectedState();
-            syncPlaySelectedButton(canPlay);
-          }
-        });
-      };
-
-      const endDrag = (evt) => {
-        const drag = state.dragSelectSession;
-        if (!drag || drag.pointerId !== evt.pointerId) return;
-        if (drag.frameReq) cancelAnimationFrame(drag.frameReq);
-        if (!drag.isDragging) {
-          setSelected(drag.startCardId, drag.mode === "add");
-        } else {
-          const finalIdx = hitCardIndexByX(evt.clientX);
-          if (finalIdx >= 0) applyDragToIndex(finalIdx);
-        }
-        state.suppressCardClick = true;
-        state.dragSelectSession = null;
-        flushSelectedState();
-        persistSelectedCards();
-        syncPlaySelectedButton(canPlay);
-        document.body.classList.remove("dragging-select");
-        try {
-          if (drag.captured) handCards.releasePointerCapture(evt.pointerId);
-        } catch {
-          // ignore
-        }
-      };
-      handCards.onpointerup = endDrag;
-      handCards.onpointercancel = (evt) => {
-        const drag = state.dragSelectSession;
-        if (!drag || drag.pointerId !== evt.pointerId) return;
-        if (drag.frameReq) cancelAnimationFrame(drag.frameReq);
-        state.suppressCardClick = true;
-        state.dragSelectSession = null;
-        flushSelectedState();
-        persistSelectedCards();
-        syncPlaySelectedButton(canPlay);
-        document.body.classList.remove("dragging-select");
-        try {
-          if (drag.captured) handCards.releasePointerCapture(evt.pointerId);
-        } catch {
-          // ignore
-        }
-      };
+      handCards.onpointerdown = null;
+      handCards.onpointermove = null;
+      handCards.onpointerup = null;
+      handCards.onpointercancel = null;
+      syncPlaySelectedButton(canPlay);
     }
 
     function renderButtons() {
@@ -4558,7 +4358,6 @@
     });
 
     window.addEventListener("beforeunload", () => {
-      document.body.classList.remove("dragging-select");
       if (state.pollTimer) clearInterval(state.pollTimer);
       if (state.lobbyPollTimer) clearInterval(state.lobbyPollTimer);
       if (state.housekeepingTimer) clearInterval(state.housekeepingTimer);
