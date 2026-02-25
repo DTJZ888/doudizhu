@@ -718,6 +718,10 @@
           <div id="handScrollWrap" class="hand-scroll-wrap">
             <input id="handScrollBar" type="range" min="0" max="0" step="1" value="0" aria-label="手牌滚动条" />
           </div>
+          <div class="row" style="margin-top: 6px;">
+            <button id="clearSelectionBtn" type="button">取消已选</button>
+            <span id="selectedCount" class="small muted">未选中</span>
+          </div>
         </div>
       </div>
 
@@ -868,6 +872,8 @@
     const teamCallOptions = document.getElementById("teamCallOptions");
     const playSelectedBtn = document.getElementById("playSelectedBtn");
     const passBtn = document.getElementById("passBtn");
+    const clearSelectionBtn = document.getElementById("clearSelectionBtn");
+    const selectedCount = document.getElementById("selectedCount");
     const handCards = document.getElementById("handCards");
     const handScrollWrap = document.getElementById("handScrollWrap");
     const handScrollBar = document.getElementById("handScrollBar");
@@ -3807,7 +3813,10 @@
     }
 
     function syncPlaySelectedButton(canPlay) {
-      playSelectedBtn.disabled = !(canPlay && state.selectedCardIds.length > 0);
+      const count = Array.isArray(state.selectedCardIds) ? state.selectedCardIds.length : 0;
+      playSelectedBtn.disabled = !(canPlay && count > 0);
+      if (clearSelectionBtn) clearSelectionBtn.disabled = count === 0;
+      if (selectedCount) selectedCount.textContent = count > 0 ? `已选 ${count} 张` : "未选中";
     }
 
     function renderHand() {
@@ -3818,7 +3827,10 @@
         handCards.onpointermove = null;
         handCards.onpointerup = null;
         handCards.onpointercancel = null;
+        state.dragSelectSession = null;
+        document.body.classList.remove("dragging-select");
         updateHandScrollBar();
+        syncPlaySelectedButton(false);
         return;
       }
 
@@ -3888,6 +3900,9 @@
         handCards.onpointermove = null;
         handCards.onpointerup = null;
         handCards.onpointercancel = null;
+        state.dragSelectSession = null;
+        document.body.classList.remove("dragging-select");
+        syncPlaySelectedButton(false);
         return;
       }
 
@@ -3976,23 +3991,36 @@
           lastMoveAt: 0,
           lastIndex: startIndex,
           pendingX: evt.clientX,
-          frameReq: 0
+          frameReq: 0,
+          startX: evt.clientX,
+          startY: evt.clientY,
+          startCardId: id,
+          isDragging: false,
+          captured: false
         };
-        applyDragSelect(id);
-        flushSelectedState();
-        syncPlaySelectedButton(canPlay);
-        document.body.classList.add("dragging-select");
-        try {
-          handCards.setPointerCapture(evt.pointerId);
-        } catch {
-          // ignore
-        }
         evt.preventDefault();
       };
 
       handCards.onpointermove = (evt) => {
         const drag = state.dragSelectSession;
         if (!drag || drag.pointerId !== evt.pointerId) return;
+        const dx = Math.abs(evt.clientX - drag.startX);
+        const dy = Math.abs(evt.clientY - drag.startY);
+        if (!drag.isDragging) {
+          if (dx < 12 && dy < 10) return;
+          if (dx < dy * 1.05) return;
+          drag.isDragging = true;
+          applyDragSelect(drag.startCardId);
+          flushSelectedState();
+          syncPlaySelectedButton(canPlay);
+          document.body.classList.add("dragging-select");
+          try {
+            handCards.setPointerCapture(evt.pointerId);
+            drag.captured = true;
+          } catch {
+            drag.captured = false;
+          }
+        }
         drag.pendingX = evt.clientX;
         if (drag.frameReq) return;
         drag.frameReq = requestAnimationFrame(() => {
@@ -4021,6 +4049,12 @@
         const drag = state.dragSelectSession;
         if (!drag || drag.pointerId !== evt.pointerId) return;
         if (drag.frameReq) cancelAnimationFrame(drag.frameReq);
+        if (!drag.isDragging) {
+          setSelected(drag.startCardId, drag.mode === "add");
+        } else {
+          const finalIdx = hitCardIndexByX(evt.clientX);
+          if (finalIdx >= 0) applyDragToIndex(finalIdx);
+        }
         state.suppressCardClick = true;
         state.dragSelectSession = null;
         flushSelectedState();
@@ -4028,13 +4062,28 @@
         syncPlaySelectedButton(canPlay);
         document.body.classList.remove("dragging-select");
         try {
-          handCards.releasePointerCapture(evt.pointerId);
+          if (drag.captured) handCards.releasePointerCapture(evt.pointerId);
         } catch {
           // ignore
         }
       };
       handCards.onpointerup = endDrag;
-      handCards.onpointercancel = endDrag;
+      handCards.onpointercancel = (evt) => {
+        const drag = state.dragSelectSession;
+        if (!drag || drag.pointerId !== evt.pointerId) return;
+        if (drag.frameReq) cancelAnimationFrame(drag.frameReq);
+        state.suppressCardClick = true;
+        state.dragSelectSession = null;
+        flushSelectedState();
+        persistSelectedCards();
+        syncPlaySelectedButton(canPlay);
+        document.body.classList.remove("dragging-select");
+        try {
+          if (drag.captured) handCards.releasePointerCapture(evt.pointerId);
+        } catch {
+          // ignore
+        }
+      };
     }
 
     function renderButtons() {
@@ -4058,6 +4107,9 @@
       undoBtn.disabled = !(room && (room.status === "playing" || room.status === "finished") && room.game?.undo && room.game.undo.actorUid === state.uid);
       restartBtn.disabled = !(room && room.hostUid === state.uid);
       closeRoomBtn.disabled = !(room && room.hostUid === state.uid);
+      const count = Array.isArray(state.selectedCardIds) ? state.selectedCardIds.length : 0;
+      clearSelectionBtn.disabled = count === 0;
+      selectedCount.textContent = count > 0 ? `已选 ${count} 张` : "未选中";
     }
 
     function playedEntryId(play, serial) {
@@ -4464,6 +4516,13 @@
 
     playSelectedBtn.addEventListener("click", async () => {
       await playSelected();
+    });
+    clearSelectionBtn.addEventListener("click", () => {
+      if (!state.selectedCardIds.length) return;
+      state.selectedCardIds = [];
+      persistSelectedCards();
+      renderHand();
+      renderButtons();
     });
 
     passBtn.addEventListener("click", async () => {
