@@ -757,42 +757,40 @@
       justify-content: center;
     }
     body.landscape-ui.in-match.table-core-ui .grid {
-      position: relative;
       padding: 8px;
-      min-height: 82dvh;
+      min-height: auto;
       background: linear-gradient(180deg, rgba(255, 250, 241, .98) 0%, rgba(247, 237, 220, .96) 100%);
     }
     body.landscape-ui.in-match.table-core-ui #roomSeatPanel {
-      position: relative;
-      min-height: 74dvh;
+      min-height: auto;
       border-bottom: 0;
       padding: 6px;
       z-index: 1;
     }
     body.landscape-ui.in-match.table-core-ui #unifiedWindowHost {
       display: block;
-      position: absolute;
-      inset: 0;
-      z-index: 4;
-      pointer-events: none;
+      position: static;
+      z-index: auto;
+      margin-top: 8px;
+      display: grid;
+      gap: 8px;
     }
     body.landscape-ui.in-match.table-core-ui .seats.table-view {
-      min-height: 72dvh;
+      min-height: 42dvh;
       border-color: #3c5f95;
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14), 0 8px 18px rgba(35, 31, 24, .22);
     }
     body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #playedPanel {
-      position: absolute;
-      left: 14px;
-      right: 14px;
-      top: 42%;
-      transform: translateY(-50%);
+      position: static;
       min-height: 0;
       max-height: none;
       border-bottom: 0;
       padding: 0;
-      z-index: 2;
+      z-index: auto;
       pointer-events: auto;
+      width: 100%;
+      background: transparent;
+      box-shadow: none;
     }
     body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #playedPanel .played-zone {
       padding: 6px 8px;
@@ -803,17 +801,15 @@
     }
     body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #playedNow {
       min-height: 80px;
-      max-height: 120px;
+      max-height: 136px;
     }
     body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #gamePanel {
-      position: absolute;
-      left: 14px;
-      right: 14px;
-      bottom: 12px;
+      position: static;
       min-height: 0;
       padding: 8px 10px;
-      z-index: 3;
+      z-index: auto;
       pointer-events: auto;
+      width: 100%;
       background: linear-gradient(180deg, rgba(248, 241, 228, .88) 0%, rgba(244, 234, 214, .95) 100%);
       border-radius: 12px;
       border: 1px solid rgba(210, 187, 146, .86);
@@ -909,31 +905,24 @@
         padding: 6px 8px;
       }
       body.landscape-ui.in-match.table-core-ui .grid {
-        min-height: 84dvh;
+        min-height: auto;
       }
       body.landscape-ui.in-match.table-core-ui #roomSeatPanel {
-        min-height: 76dvh;
+        min-height: auto;
       }
       body.landscape-ui.in-match.table-core-ui .seats.table-view {
-        min-height: 74dvh;
+        min-height: 38dvh;
       }
       body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #playedPanel {
-        left: 8px;
-        right: 8px;
-        top: 40%;
-        transform: translateY(-50%);
         min-height: 0;
         max-height: none;
         padding: 0;
       }
       body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #playedNow {
-        min-height: 11dvh;
-        max-height: 14dvh;
+        min-height: 10dvh;
+        max-height: 16dvh;
       }
       body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #gamePanel {
-        left: 8px;
-        right: 8px;
-        bottom: 8px;
         min-height: 0;
         padding: 6px 8px;
       }
