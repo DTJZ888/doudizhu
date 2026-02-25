@@ -880,9 +880,14 @@
       display: none;
     }
     body.landscape-ui.in-match.table-core-ui .seats.table-view {
-      min-height: 124dvh;
+      min-height: min(124dvh, calc(100dvh - 24px));
       border-color: #3c5f95;
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14), 0 8px 18px rgba(35, 31, 24, .22);
+    }
+    body.landscape-ui.in-match.table-core-ui .seats.table-view .seat[data-slot="bottom"] {
+      max-height: calc(100% - 156px);
+      overflow: auto;
+      overscroll-behavior: contain;
     }
     body.landscape-ui.in-match.table-core-ui .table-center-dock {
       left: 14%;
@@ -990,7 +995,10 @@
         min-height: auto;
       }
       body.landscape-ui.in-match.table-core-ui .seats.table-view {
-        min-height: 120dvh;
+        min-height: min(120dvh, calc(100dvh - 20px));
+      }
+      body.landscape-ui.in-match.table-core-ui .seats.table-view .seat[data-slot="bottom"] {
+        max-height: calc(100% - 140px);
       }
       body.landscape-ui.in-match.table-core-ui .table-center-dock {
         left: 11%;
