@@ -163,7 +163,7 @@
       padding: 8px 8px 10px;
       overflow-x: auto;
       overflow-y: visible;
-      touch-action: pan-y;
+      touch-action: manipulation;
       user-select: none;
     }
     .hand-scroll-wrap {
@@ -211,7 +211,6 @@
     .card-btn.selected .card-img {
       transform: translateY(-8px);
       box-shadow: 0 13px 20px rgba(42, 33, 19, .24);
-      outline: 2px solid #c49028;
     }
     .card-btn.selected { z-index: 30; }
     .red { color: #b61f1f; }
@@ -814,6 +813,7 @@
       playedRenderIds: [],
       playedRenderRoom: "",
       playedScrollRoom: "",
+      touchHandledUntil: 0,
       landscapeUi: readStoredBool(LAYOUT_LANDSCAPE_KEY, false)
     };
 
@@ -3855,22 +3855,81 @@
         return true;
       };
 
+      const toggleOneCard = (id) => {
+        if (!id) return;
+        const changed = setSelected(id, !selectedSet.has(id));
+        if (!changed) return;
+        flushSelectedState();
+        persistSelectedCards();
+        syncPlaySelectedButton(canPlay);
+      };
+
       buttons.forEach((btn) => {
         btn.addEventListener("click", () => {
           if (!canPlay) return;
-          const id = btn.dataset.card;
-          const changed = setSelected(id, !selectedSet.has(id));
-          if (changed) {
-            flushSelectedState();
-            persistSelectedCards();
-            syncPlaySelectedButton(canPlay);
-          }
+          if (Date.now() < state.touchHandledUntil) return;
+          const id = btn.dataset.card || "";
+          toggleOneCard(id);
         });
       });
-      handCards.onpointerdown = null;
-      handCards.onpointermove = null;
-      handCards.onpointerup = null;
-      handCards.onpointercancel = null;
+
+      let tapSession = null;
+      const cardCenters = buttons.map((btn) => ({
+        id: btn.dataset.card || "",
+        center: btn.offsetLeft + (btn.offsetWidth / 2)
+      })).filter((x) => !!x.id);
+      const hitRanges = cardCenters.map((c, idx) => {
+        const prev = idx > 0 ? cardCenters[idx - 1] : null;
+        const next = idx < cardCenters.length - 1 ? cardCenters[idx + 1] : null;
+        return {
+          id: c.id,
+          start: prev ? (prev.center + c.center) / 2 : -Infinity,
+          end: next ? (c.center + next.center) / 2 : Infinity
+        };
+      });
+      const hitCardIdByX = (clientX) => {
+        if (!hitRanges.length) return "";
+        const rect = handCards.getBoundingClientRect();
+        const x = (clientX - rect.left) + handCards.scrollLeft;
+        const hit = hitRanges.find((r) => x >= r.start && x < r.end);
+        return hit?.id || hitRanges[hitRanges.length - 1].id || "";
+      };
+
+      if (canPlay) {
+        handCards.onpointerdown = (evt) => {
+          if (evt.pointerType === "mouse") return;
+          tapSession = {
+            pointerId: evt.pointerId,
+            x: evt.clientX,
+            y: evt.clientY,
+            at: performance.now()
+          };
+        };
+        handCards.onpointermove = null;
+        handCards.onpointerup = (evt) => {
+          if (evt.pointerType === "mouse") return;
+          if (!tapSession || tapSession.pointerId !== evt.pointerId) return;
+          const dx = Math.abs(evt.clientX - tapSession.x);
+          const dy = Math.abs(evt.clientY - tapSession.y);
+          const dt = performance.now() - tapSession.at;
+          tapSession = null;
+          if (dx > 16 || dy > 16 || dt > 500) return;
+          const id = hitCardIdByX(evt.clientX);
+          if (!id) return;
+          state.touchHandledUntil = Date.now() + 420;
+          toggleOneCard(id);
+          evt.preventDefault();
+        };
+        handCards.onpointercancel = () => {
+          tapSession = null;
+        };
+      } else {
+        handCards.onpointerdown = null;
+        handCards.onpointermove = null;
+        handCards.onpointerup = null;
+        handCards.onpointercancel = null;
+      }
+
       syncPlaySelectedButton(canPlay);
     }
 
