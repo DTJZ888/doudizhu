@@ -433,6 +433,7 @@
     const MODE_B_CALLABLE_RANKS = ["4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
     const LOBBY_MSG_PREVIEW_COUNT = 30;
     const LOBBY_MSG_PAGE_SIZE = 200;
+    const AI_UID_PREFIX = "ai_";
 
     const state = {
       uid: "",
@@ -452,7 +453,8 @@
       lobbyUnsubs: [],
       lobbyPollTimer: null,
       lobbyMsgReady: false,
-      lobbyMsgDisabled: false
+      lobbyMsgDisabled: false,
+      aiBusy: false
     };
 
     const authStatus = document.getElementById("authStatus");
@@ -764,8 +766,23 @@
       return "经典原型";
     }
 
+    function minPlayersForMode(mode) {
+      if (mode === MODE_SOLO_VALIDATE) return 1;
+      if (mode === MODE_POKER_A2) return 2;
+      if (mode === MODE_POKER_A4 || mode === MODE_POKER_B4) return 4;
+      return TABLE_MIN_PLAYERS;
+    }
+
     function roomMode(roomLike) {
       return roomLike?.state?.gameMode || roomLike?.gameMode || MODE_CLASSIC;
+    }
+
+    function isAiUid(uid) {
+      return typeof uid === "string" && uid.startsWith(AI_UID_PREFIX);
+    }
+
+    function aiUid(roomId, seat) {
+      return `${AI_UID_PREFIX}${roomId}_${seat}`;
     }
 
     function modeRulesText(mode) {
@@ -785,7 +802,8 @@
           "- 先从54张中随机抽取10张，不参与本局",
           "- 剩余44张平均发给双方（各22张）",
           "- 牌型与比较规则与4人扑克A一致",
-          "- 先出完手牌获胜"
+          "- 先出完手牌获胜",
+          "- 若人数不足，房主点开始会自动补位AI"
         ].join("\n");
       }
       if (mode === MODE_POKER_A4) {
@@ -796,7 +814,8 @@
           "- 点数顺序：4<5<6<7<8<9<10<J<Q<K<A<2<3<小王<大王",
           "- 炸弹优先：双王>四炸>三炸；炸弹可压非炸弹",
           "- 捕获：44可捕获三炸，444可捕获四炸，被捕获牌并入自己手牌",
-          "- 先出完手牌获胜"
+          "- 先出完手牌获胜",
+          "- 若人数不足，房主点开始会自动补位AI"
         ].join("\n");
       }
       if (mode === MODE_POKER_B4) {
@@ -807,14 +826,16 @@
           "- 发牌后，持有黑桃A的玩家先选择一张K及以下的具体牌（4~K）",
           "- 谁分到该牌，谁就是其队友（过程中不公开队友）",
           "- 黑桃A阵营获胜条件：该阵营两人都要在任一对手之前出完",
-          "- 否则对手阵营获胜"
+          "- 否则对手阵营获胜",
+          "- 若人数不足，房主点开始会自动补位AI"
         ].join("\n");
       }
       return [
         "经典原型",
         "- 开局人数：2-4人",
         "- 当前只验证单张比较流程",
-        "- 出牌：每次选择1张后点击“出所选牌”"
+        "- 出牌：每次选择1张后点击“出所选牌”",
+        "- 若人数不足，房主点开始会自动补位AI"
       ].join("\n");
     }
 
@@ -1193,10 +1214,11 @@
       state.selectedCardIds = state.selectedCardIds.filter((id) => !!state.hand[id]);
     }
 
-    async function refreshRoomAndHand() {
+    async function refreshRoomAndHand(runAi = true) {
       if (!state.roomId) return;
       await Promise.all([fetchRoomOnce(), fetchHandOnce()]);
       render();
+      if (runAi) await maybeDriveAi();
     }
 
     function detachRoomListeners() {
@@ -1222,8 +1244,7 @@
           "postgres_changes",
           { event: "*", schema: "public", table: "rooms", filter: `room_id=eq.${state.roomId}` },
           async () => {
-            await fetchRoomOnce();
-            render();
+            await refreshRoomAndHand();
           }
         )
         .on(
@@ -1580,7 +1601,14 @@
 
         if (targetSeat !== null) {
           const key = String(targetSeat);
-          if (room.state.seats[key]) return false;
+          const occupied = room.state.seats[key];
+          if (occupied && !isAiUid(occupied)) return false;
+          if (occupied && isAiUid(occupied)) {
+            room.state.seats[key] = null;
+            delete room.state.members[occupied];
+            delete room.state.ready[occupied];
+            delete room.state.publicCounts[occupied];
+          }
           room.state.seats[key] = state.uid;
           room.state.ready[state.uid] = true;
         }
@@ -1621,12 +1649,34 @@
       const deck = shuffle(makeDeck());
       let bottom = [];
       let openedCards = [];
+      let autoAiCount = 0;
 
       const tx = await mutateRoom(state.roomId, (room) => {
         ensureRoomStateShape(room);
         if (room.host_uid !== state.uid || room.status !== "lobby") return false;
 
         activeSeats = activeSeatsFrom(room.state.seats, room.state.seatCount);
+        const minNeed = minPlayersForMode(mode);
+        if (activeSeats.length < minNeed) {
+          for (const seat of buildSeatIndexes(room.state.seatCount)) {
+            if (activeSeats.length >= minNeed) break;
+            const key = String(seat);
+            if (room.state.seats[key]) continue;
+            const uid = aiUid(room.room_id, seat);
+            if (!room.state.members[uid]) {
+              room.state.members[uid] = {
+                nick: `AI-${seat + 1}`,
+                joinedAt: Date.now(),
+                isAi: true
+              };
+            }
+            room.state.seats[key] = uid;
+            room.state.ready[uid] = true;
+            activeSeats.push(seat);
+            autoAiCount += 1;
+          }
+        }
+
         if (mode === MODE_SOLO_VALIDATE) {
           if (activeSeats.length !== 1) return false;
         } else if (mode === MODE_POKER_A2) {
@@ -1735,6 +1785,10 @@
           finishOrder: [],
           winnerSeats: [],
           winnerSide: null,
+          aiMemory: {
+            playedHigh: { "2": 0, "3": 0, SJ: 0, BJ: 0 },
+            bombPlays: 0
+          },
           undo: null,
           winnerSeat: null,
           updatedAt: Date.now()
@@ -1748,6 +1802,7 @@
 
       try {
         await Promise.all(seatUids.map((uid) => writeHand(uid, hands[uid])));
+        if (autoAiCount > 0) log(`已自动补位 ${autoAiCount} 个 AI 玩家`);
         if (mode === MODE_POKER_A4) {
           log("发牌完成，进入4人扑克A出牌阶段");
         } else if (mode === MODE_POKER_B4) {
@@ -1866,8 +1921,12 @@
         if (room.state.game.mode !== MODE_POKER_B4) return false;
         if (room.state.game.teamCall?.resolved) return false;
 
+        const ownerSeat = room.state.game.teamCall?.ownerSeat;
+        const ownerUid = room.state.seats[String(ownerSeat)];
         const mySeat = getMySeat(mapRoomRow(room));
-        if (mySeat === null || mySeat !== room.state.game.teamCall?.ownerSeat) return false;
+        const selfOwner = mySeat !== null && mySeat === ownerSeat && ownerUid === state.uid;
+        const hostDriveAi = room.host_uid === state.uid && isAiUid(ownerUid);
+        if (!selfOwner && !hostDriveAi) return false;
 
         const options = room.state.game.teamCall?.options || [];
         if (!options.includes(targetId)) return false;
@@ -1891,6 +1950,535 @@
       }
       showMsg("已确认模式B队友牌");
       log("黑桃A玩家已完成模式B队友牌选择");
+    }
+
+    function finalizeAfterPlay(room, liveMode, liveSeats, actorSeat, actorUid) {
+      if (room.state.publicCounts[actorUid] !== 0) {
+        room.state.game.turnSeat = nextSeat(liveSeats, actorSeat);
+        room.state.game.updatedAt = Date.now();
+        return false;
+      }
+
+      const finishOrder = Array.isArray(room.state.game.finishOrder) ? room.state.game.finishOrder : [];
+      if (!finishOrder.includes(actorSeat)) finishOrder.push(actorSeat);
+      room.state.game.finishOrder = finishOrder;
+
+      if (liveMode === MODE_CLASSIC) {
+        const landlordSeat = room.state.game.landlordSeat;
+        const winnerSeats = actorSeat === landlordSeat
+          ? [landlordSeat]
+          : (liveSeats.filter((s) => s !== landlordSeat));
+        room.status = "finished";
+        room.state.game.winnerSeat = winnerSeats[0];
+        room.state.game.winnerSeats = winnerSeats;
+        room.state.game.winnerSide = actorSeat === landlordSeat ? "landlord" : "farmers";
+        room.state.game.updatedAt = Date.now();
+        return true;
+      }
+
+      if (liveMode === MODE_POKER_B4) {
+        const ownerSeat = room.state.game.teamCall?.ownerSeat;
+        const mateSeat = room.state.game.teamCall?.teammateSeat;
+        const hasPair = Number.isInteger(ownerSeat) && Number.isInteger(mateSeat);
+        if (hasPair) {
+          const pairSeats = [ownerSeat, mateSeat];
+          const oppSeats = liveSeats.filter((s) => !pairSeats.includes(s));
+          const pairDone = pairSeats.every((s) => finishOrder.includes(s));
+          const oppDone = oppSeats.some((s) => finishOrder.includes(s));
+
+          if (pairDone || oppDone) {
+            room.status = "finished";
+            if (pairDone && !oppDone) {
+              room.state.game.winnerSide = "team_b_pair";
+              room.state.game.winnerSeats = pairSeats;
+              room.state.game.winnerSeat = pairSeats[0];
+            } else {
+              room.state.game.winnerSide = "team_b_opp";
+              room.state.game.winnerSeats = oppSeats;
+              room.state.game.winnerSeat = oppSeats[0];
+            }
+            room.state.game.updatedAt = Date.now();
+            return true;
+          }
+        }
+
+        const aliveSeats = liveSeats.filter((seat) => {
+          const uid = room.state.seats[String(seat)];
+          return (room.state.publicCounts[uid] || 0) > 0;
+        });
+        const nextLead = aliveSeats.length ? nextSeat(aliveSeats, actorSeat) : actorSeat;
+        room.state.game.activeSeats = aliveSeats;
+        room.state.game.passNeed = Math.max(aliveSeats.length - 1, 1);
+        room.state.game.turnSeat = nextLead;
+        room.state.game.trickLeaderSeat = nextLead;
+        room.state.game.lastPlay = null;
+        room.state.game.passStreak = 0;
+        room.state.game.updatedAt = Date.now();
+        return false;
+      }
+
+      room.status = "finished";
+      room.state.game.winnerSeat = actorSeat;
+      room.state.game.winnerSeats = [actorSeat];
+      room.state.game.winnerSide = liveMode === MODE_SOLO_VALIDATE ? "solo" : "single";
+      room.state.game.updatedAt = Date.now();
+      return true;
+    }
+
+    async function fetchHandByUid(uid) {
+      if (!supabase || !state.roomId || !uid) return {};
+      const { data, error } = await supabase
+        .from("private_hands")
+        .select("cards")
+        .eq("room_id", state.roomId)
+        .eq("uid", uid)
+        .maybeSingle();
+      if (error && error.code !== "PGRST116") throw error;
+      return data?.cards || {};
+    }
+
+    function aiAnalyzeSort(a, b) {
+      const aBomb = isBombType(a.type) ? 1 : 0;
+      const bBomb = isBombType(b.type) ? 1 : 0;
+      if (aBomb !== bBomb) return aBomb - bBomb;
+      if (a.mainValue !== b.mainValue) return a.mainValue - b.mainValue;
+      if (a.length !== b.length) return a.length - b.length;
+      return String(a.type).localeCompare(String(b.type));
+    }
+
+    function aiStraightSort(a, b) {
+      if (a.length !== b.length) return a.length - b.length;
+      return a.mainValue - b.mainValue;
+    }
+
+    function aiPairSort(a, b) {
+      const av = POKER_A_VALUE[a.rankKey] || 0;
+      const bv = POKER_A_VALUE[b.rankKey] || 0;
+      return av - bv;
+    }
+
+    function isHighThreatPlay(lastPlay) {
+      if (!lastPlay) return false;
+      if (isBombType(lastPlay.type)) return true;
+      return Number(lastPlay.mainValue || 0) >= (POKER_A_VALUE["2"] || 12);
+    }
+
+    function countHighRanksInHand(handMap) {
+      const cnt = { "2": 0, "3": 0, SJ: 0, BJ: 0 };
+      for (const card of Object.values(handMap || {})) {
+        if (card.rank in cnt) cnt[card.rank] += 1;
+      }
+      return cnt;
+    }
+
+    function estimateHighThreatRemaining(game, handMap) {
+      const total = { "2": 4, "3": 4, SJ: 1, BJ: 1 };
+      const played = game?.aiMemory?.playedHigh || {};
+      const mine = countHighRanksInHand(handMap);
+      let remain = 0;
+      for (const key of Object.keys(total)) {
+        remain += Math.max(total[key] - (played[key] || 0) - (mine[key] || 0), 0);
+      }
+      return remain;
+    }
+
+    function shouldBombOnNormal(lastPlay, bomb, handMap, game) {
+      const handSize = Object.keys(handMap || {}).length;
+      const afterSize = Math.max(handSize - (bomb?.cards?.length || 0), 0);
+      if (handSize <= 2 || afterSize <= 2) return true;
+
+      if (!isHighThreatPlay(lastPlay)) return false;
+      const remainHigh = estimateHighThreatRemaining(game, handMap);
+      return remainHigh > 0;
+    }
+
+    function updateAiMemoryWithPlay(game, analyzed) {
+      if (!game || !analyzed || !Array.isArray(analyzed.cards)) return;
+      game.aiMemory = game.aiMemory || {
+        playedHigh: { "2": 0, "3": 0, SJ: 0, BJ: 0 },
+        bombPlays: 0
+      };
+      for (const card of analyzed.cards) {
+        if (card.rank === "2" || card.rank === "3" || card.rank === "SJ" || card.rank === "BJ") {
+          game.aiMemory.playedHigh[card.rank] = (game.aiMemory.playedHigh[card.rank] || 0) + 1;
+        }
+      }
+      if (isBombType(analyzed.type)) {
+        game.aiMemory.bombPlays = (game.aiMemory.bombPlays || 0) + 1;
+      }
+    }
+
+    function enumeratePokerAAnalyzed(handMap) {
+      const cards = Object.values(handMap || {});
+      if (!cards.length) return [];
+
+      const groups = {};
+      for (const card of cards) {
+        groups[card.rank] = groups[card.rank] || [];
+        groups[card.rank].push(card);
+      }
+      for (const arr of Object.values(groups)) {
+        arr.sort((a, b) => a.id.localeCompare(b.id));
+      }
+
+      const raw = [];
+      for (const card of cards) raw.push([card]);
+      for (const rank of Object.keys(groups)) {
+        const arr = groups[rank];
+        if (arr.length >= 2) raw.push(arr.slice(0, 2));
+        if (arr.length >= 3) raw.push(arr.slice(0, 3));
+        if (arr.length >= 4) raw.push(arr.slice(0, 4));
+      }
+      if (groups.SJ?.length && groups.BJ?.length) raw.push([groups.SJ[0], groups.BJ[0]]);
+
+      for (let start = 0; start < POKER_A_STRAIGHT_ORDER.length; start += 1) {
+        let end = start;
+        while (end < POKER_A_STRAIGHT_ORDER.length && (groups[POKER_A_STRAIGHT_ORDER[end]] || []).length >= 1) end += 1;
+        const runLen = end - start;
+        if (runLen >= 3) {
+          for (let len = 3; len <= runLen; len += 1) {
+            for (let s = start; s <= end - len; s += 1) {
+              const pick = [];
+              for (let i = s; i < s + len; i += 1) {
+                pick.push(groups[POKER_A_STRAIGHT_ORDER[i]][0]);
+              }
+              raw.push(pick);
+            }
+          }
+        }
+        start = end;
+      }
+
+      for (let start = 0; start < POKER_A_STRAIGHT_ORDER.length; start += 1) {
+        let end = start;
+        while (end < POKER_A_STRAIGHT_ORDER.length && (groups[POKER_A_STRAIGHT_ORDER[end]] || []).length >= 2) end += 1;
+        const runLen = end - start;
+        if (runLen >= 3) {
+          for (let len = 3; len <= runLen; len += 1) {
+            for (let s = start; s <= end - len; s += 1) {
+              const pick = [];
+              for (let i = s; i < s + len; i += 1) {
+                pick.push(groups[POKER_A_STRAIGHT_ORDER[i]][0], groups[POKER_A_STRAIGHT_ORDER[i]][1]);
+              }
+              raw.push(pick);
+            }
+          }
+        }
+        start = end;
+      }
+
+      const uniq = new Map();
+      for (const combo of raw) {
+        const analyzed = analyzePokerA(combo);
+        if (!analyzed.ok) continue;
+        const key = combo.map((c) => c.id).sort().join(",");
+        if (!uniq.has(key)) uniq.set(key, analyzed);
+      }
+      return Array.from(uniq.values()).sort(aiAnalyzeSort);
+    }
+
+    function pickAiClassicPlay(handMap, lastPlay, seat) {
+      const cards = sortedCardsByMode(Object.values(handMap || {}), MODE_CLASSIC);
+      if (!cards.length) return null;
+      if (!lastPlay || lastPlay.seat === seat) {
+        const c = cards[0];
+        return { analyzed: { ok: true, type: "single", length: 1, mainValue: c.power, rankKey: c.rank, cards: [c] } };
+      }
+      const target = Number(lastPlay.power || 0);
+      const higher = cards.find((c) => Number(c.power || 0) > target);
+      if (!higher) return { pass: true };
+      return { analyzed: { ok: true, type: "single", length: 1, mainValue: higher.power, rankKey: higher.rank, cards: [higher] } };
+    }
+
+    function pickAiPokerAPlay(handMap, lastPlay, activeSeats, seat, game) {
+      const analyzedList = enumeratePokerAAnalyzed(handMap);
+      if (!analyzedList.length) return { pass: true };
+      const handSize = Object.keys(handMap || {}).length;
+      const byType = (t) => analyzedList.filter((x) => x.type === t);
+      const bombs = analyzedList.filter((x) => isBombType(x.type)).sort(aiAnalyzeSort);
+
+      if (!lastPlay || lastPlay.seat === seat) {
+        // 手牌可一次出完时优先直接清空
+        const oneShot = analyzedList.find((x) => x.cards.length === handSize);
+        if (oneShot) return { analyzed: oneShot };
+
+        const straights = byType("straight").sort(aiStraightSort);
+        if (straights.length) return { analyzed: straights[0] };
+
+        const seqPairs = byType("seq_pair").sort(aiStraightSort);
+        if (seqPairs.length) return { analyzed: seqPairs[0] };
+
+        const pairs = byType("pair").sort(aiPairSort);
+        const non23Pairs = pairs.filter((x) => x.rankKey !== "2" && x.rankKey !== "3");
+        if (non23Pairs.length) return { analyzed: non23Pairs[0] };
+        if (pairs.length) return { analyzed: pairs[0] };
+
+        const singles = byType("single").sort(aiPairSort);
+        if (singles.length) return { analyzed: singles[0] };
+
+        // 只有炸弹时，少牌优先出最小炸弹；其余尽量后手留炸弹（但先手无法过，只能出）
+        if (bombs.length) return { analyzed: bombs[0] };
+        return { pass: true };
+      }
+
+      // 上家普通牌：先最小同型压制；不行再按条件考虑炸弹
+      if (!isBombType(lastPlay.type)) {
+        const sameType = analyzedList
+          .filter((x) => x.type === lastPlay.type)
+          .filter((x) => {
+            if (x.type === "straight" || x.type === "seq_pair") return x.length === lastPlay.length;
+            return true;
+          })
+          .filter((x) => canBeatPokerA(x, lastPlay, seat))
+          .sort(aiAnalyzeSort);
+        if (sameType.length) return { analyzed: sameType[0] };
+
+        const bombBeat = bombs.filter((x) => canBeatPokerA(x, lastPlay, seat)).sort(aiAnalyzeSort);
+        if (bombBeat.length && shouldBombOnNormal(lastPlay, bombBeat[0], handMap, game)) return { analyzed: bombBeat[0] };
+        return { pass: true };
+      }
+
+      // 上家三炸：优先44捕获，再最小可压炸弹
+      if (lastPlay.type === "triple_bomb") {
+        const capturePairs = byType("pair").filter((x) => canCaptureInPokerA(x, lastPlay, activeSeats, seat)).sort(aiAnalyzeSort);
+        if (capturePairs.length) {
+          const highBomb = Number(lastPlay.mainValue || 0) >= (POKER_A_VALUE["2"] || 12);
+          if (highBomb || handSize >= 8) return { analyzed: capturePairs[0] };
+        }
+
+        const bombBeat = bombs.filter((x) => canBeatPokerA(x, lastPlay, seat)).sort(aiAnalyzeSort);
+        if (bombBeat.length) return { analyzed: bombBeat[0] };
+        return { pass: true };
+      }
+
+      // 上家四炸：优先444捕获，再最小可压四炸
+      if (lastPlay.type === "quad_bomb") {
+        const captureTriple = byType("triple_bomb").filter((x) => canCaptureInPokerA(x, lastPlay, activeSeats, seat)).sort(aiAnalyzeSort);
+        if (captureTriple.length) {
+          const highBomb = Number(lastPlay.mainValue || 0) >= (POKER_A_VALUE["2"] || 12);
+          if (highBomb || handSize >= 8) return { analyzed: captureTriple[0] };
+        }
+        const bombBeat = bombs.filter((x) => canBeatPokerA(x, lastPlay, seat)).sort(aiAnalyzeSort);
+        if (bombBeat.length) return { analyzed: bombBeat[0] };
+        return { pass: true };
+      }
+
+      // 其余炸弹（含王炸）统一按最小可压炸弹处理
+      const captures = analyzedList.filter((x) => canCaptureInPokerA(x, lastPlay, activeSeats, seat));
+      if (captures.length) return { analyzed: captures[0] };
+
+      const beats = bombs.filter((x) => canBeatPokerA(x, lastPlay, seat));
+      if (!beats.length) return { pass: true };
+      return { analyzed: beats.sort(aiAnalyzeSort)[0] };
+    }
+
+    async function aiPassTurn(actorUid, actorSeat) {
+      const tx = await mutateRoom(state.roomId, (room) => {
+        ensureRoomStateShape(room);
+        if (room.status !== "playing" || !room.state.game || !room.state.game.bottomClaimed) return false;
+        if (room.state.game.turnSeat !== actorSeat) return false;
+        if (room.state.seats[String(actorSeat)] !== actorUid) return false;
+        if (!room.state.game.lastPlay || room.state.game.trickLeaderSeat === actorSeat) return false;
+
+        room.state.game.passStreak += 1;
+        const liveSeats = (room.state.game.activeSeats || activeSeatsFrom(room.state.seats, room.state.seatCount))
+          .filter((seat) => !!room.state.seats[String(seat)]);
+        const passNeed = room.state.game.passNeed || Math.max(liveSeats.length - 1, 1);
+
+        if (room.state.game.passStreak >= passNeed) {
+          room.state.game.turnSeat = room.state.game.trickLeaderSeat;
+          room.state.game.lastPlay = null;
+          room.state.game.passStreak = 0;
+        } else {
+          room.state.game.turnSeat = nextSeat(liveSeats, actorSeat);
+        }
+        room.state.game.undo = null;
+        room.state.game.updatedAt = Date.now();
+      });
+      return !!tx.committed;
+    }
+
+    async function aiPlayTurn(actorUid, actorSeat, analyzed, handMap) {
+      const beforeHand = clone(handMap || {});
+      const nextHand = clone(beforeHand);
+      for (const card of analyzed.cards || []) delete nextHand[card.id];
+
+      await writeHand(actorUid, nextHand);
+      let capturedCards = [];
+
+      const tx = await mutateRoom(state.roomId, (room) => {
+        ensureRoomStateShape(room);
+        if (room.status !== "playing" || !room.state.game || !room.state.game.bottomClaimed) return false;
+        if (room.state.game.turnSeat !== actorSeat) return false;
+        if (room.state.seats[String(actorSeat)] !== actorUid) return false;
+
+        const liveMode = room.state.game.mode || room.state.gameMode || MODE_CLASSIC;
+        const liveSeats = (room.state.game.activeSeats || activeSeatsFrom(room.state.seats, room.state.seatCount))
+          .filter((seat) => !!room.state.seats[String(seat)]);
+        const lastPlay = room.state.game.lastPlay;
+
+        if (liveMode === MODE_POKER_A4 || liveMode === MODE_POKER_A2 || liveMode === MODE_POKER_B4 || liveMode === MODE_SOLO_VALIDATE) {
+          const capture = canCaptureInPokerA(analyzed, lastPlay, liveSeats, actorSeat);
+          if (!capture && !canBeatPokerA(analyzed, lastPlay, actorSeat)) return false;
+          room.state.publicCounts[actorUid] = Math.max((room.state.publicCounts[actorUid] || 0) - analyzed.cards.length, 0);
+          if (capture) {
+            const rawCards = Array.isArray(lastPlay?.cards) ? lastPlay.cards : [lastPlay];
+            capturedCards = rawCards.map((x) => normalizeCard(x)).filter(Boolean);
+            room.state.publicCounts[actorUid] += capturedCards.length;
+          }
+        } else {
+          if (!canBeatClassic(analyzed, lastPlay, actorSeat)) return false;
+          room.state.publicCounts[actorUid] = Math.max((room.state.publicCounts[actorUid] || 0) - 1, 0);
+        }
+
+        const labels = analyzed.cards.map((c) => c.label || cardPrettyName(c)).join(" ");
+        room.state.game.lastPlay = {
+          seat: actorSeat,
+          uid: actorUid,
+          type: analyzed.type,
+          length: analyzed.length,
+          mainValue: analyzed.mainValue,
+          rankKey: analyzed.rankKey,
+          cards: analyzed.cards,
+          label: labels,
+          power: analyzed.mainValue,
+          at: Date.now()
+        };
+        updateAiMemoryWithPlay(room.state.game, analyzed);
+        room.state.game.trickLeaderSeat = actorSeat;
+        room.state.game.passStreak = 0;
+        room.state.game.undo = null;
+        finalizeAfterPlay(room, liveMode, liveSeats, actorSeat, actorUid);
+      });
+
+      if (!tx.committed) {
+        await writeHand(actorUid, beforeHand);
+        return false;
+      }
+
+      if (capturedCards.length) {
+        const merged = clone(nextHand);
+        for (const card of capturedCards) merged[card.id] = card;
+        await writeHand(actorUid, merged);
+      }
+      return true;
+    }
+
+    async function aiBidIfNeeded(room) {
+      if (!room?.game?.bid) return false;
+      const seat = room.game.bid.currentSeat;
+      const uid = room.seats?.[String(seat)];
+      if (!isAiUid(uid)) return false;
+
+      const tx = await mutateRoom(state.roomId, (work) => {
+        ensureRoomStateShape(work);
+        if (work.status !== "bidding" || !work.state.game || !work.state.game.bid) return false;
+        const b = work.state.game.bid;
+        const s = b.currentSeat;
+        const u = work.state.seats[String(s)];
+        if (!isAiUid(u)) return false;
+        if (b.bids[String(s)] !== null) return false;
+
+        const highest = Number(b.highestBid || 0);
+        const r = Math.random();
+        let aiBid = 0;
+        if (highest === 0) aiBid = r < 0.22 ? 1 : (r < 0.28 ? 2 : (r < 0.31 ? 3 : 0));
+        else if (highest === 1) aiBid = r < 0.22 ? 2 : (r < 0.28 ? 3 : 0);
+        else if (highest === 2) aiBid = r < 0.18 ? 3 : 0;
+
+        b.bids[String(s)] = aiBid;
+        b.acted += 1;
+        if (aiBid > b.highestBid) {
+          b.highestBid = aiBid;
+          b.highestSeat = s;
+        }
+
+        const activeSeats = (work.state.game.activeSeats || activeSeatsFrom(work.state.seats, work.state.seatCount))
+          .filter((x) => !!work.state.seats[String(x)]);
+        const done = b.acted >= activeSeats.length || aiBid === 3;
+        if (!done) {
+          b.currentSeat = nextSeat(activeSeats, s);
+          work.state.game.updatedAt = Date.now();
+          return;
+        }
+
+        const landlordSeat = b.highestSeat === null ? activeSeats[0] : b.highestSeat;
+        work.state.game.landlordSeat = landlordSeat;
+        work.status = "playing";
+        work.state.game.turnSeat = landlordSeat;
+        work.state.game.trickLeaderSeat = landlordSeat;
+        work.state.game.passNeed = Math.max(activeSeats.length - 1, 1);
+        work.state.game.passStreak = 0;
+        work.state.game.lastPlay = null;
+        work.state.game.bottomClaimed = false;
+        work.state.game.updatedAt = Date.now();
+      });
+      return !!tx.committed;
+    }
+
+    async function aiChooseTeamCardIfNeeded(room) {
+      if (!room?.game?.teamCall || room.game.teamCall.resolved) return false;
+      const ownerSeat = room.game.teamCall.ownerSeat;
+      const ownerUid = room.seats?.[String(ownerSeat)];
+      if (!isAiUid(ownerUid)) return false;
+      const pick = room.game.teamCall.options?.[0];
+      if (!pick) return false;
+      await chooseTeamCard(pick);
+      return true;
+    }
+
+    async function aiPlayIfNeeded(room) {
+      if (!room?.game || room.status !== "playing" || !room.game.bottomClaimed) return false;
+      const actorSeat = room.game.turnSeat;
+      const actorUid = room.seats?.[String(actorSeat)];
+      if (!isAiUid(actorUid)) return false;
+
+      const handMap = await fetchHandByUid(actorUid);
+      const mode = roomMode(room);
+      const liveSeats = (room.game.activeSeats || activeSeatsFrom(room.seats, room.seatCount))
+        .filter((seat) => !!room.seats[String(seat)]);
+      const lastPlay = room.game.lastPlay;
+
+      const decision = mode === MODE_CLASSIC
+        ? pickAiClassicPlay(handMap, lastPlay, actorSeat)
+        : pickAiPokerAPlay(handMap, lastPlay, liveSeats, actorSeat, room.game);
+
+      if (!decision || decision.pass) {
+        const passed = await aiPassTurn(actorUid, actorSeat);
+        if (passed) log(`AI(${actorSeat + 1}号位) 过牌`);
+        return passed;
+      }
+
+      const ok = await aiPlayTurn(actorUid, actorSeat, decision.analyzed, handMap);
+      if (ok) log(`AI(${actorSeat + 1}号位) 出牌：${decision.analyzed.cards.map((c) => c.label || cardPrettyName(c)).join(" ")}`);
+      return ok;
+    }
+
+    async function maybeDriveAi() {
+      if (state.aiBusy || !state.room || !state.roomId || !supabase) return;
+      if (state.room.hostUid !== state.uid) return;
+
+      const room = state.room;
+      const mode = roomMode(room);
+      if (!room.game) return;
+
+      state.aiBusy = true;
+      try {
+        let acted = false;
+        if (room.status === "bidding" && mode === MODE_CLASSIC) {
+          acted = await aiBidIfNeeded(room);
+        } else if (room.status === "playing") {
+          if (mode === MODE_POKER_B4 && !room.game.bottomClaimed) {
+            acted = await aiChooseTeamCardIfNeeded(room);
+          }
+          if (!acted) acted = await aiPlayIfNeeded(room);
+        }
+        if (acted) await refreshRoomAndHand(false);
+      } catch (err) {
+        log(`AI操作失败：${friendlyErr(err)}`);
+      } finally {
+        state.aiBusy = false;
+      }
     }
 
     async function playSelected() {
@@ -1974,6 +2562,7 @@
         };
 
         room.state.game.lastPlay = playRecord;
+        updateAiMemoryWithPlay(room.state.game, analyzed);
         room.state.game.trickLeaderSeat = mySeat;
         room.state.game.passStreak = 0;
 
@@ -1995,75 +2584,7 @@
           room.state.game.undo = null;
         }
 
-        if (room.state.publicCounts[state.uid] === 0) {
-          const finishOrder = Array.isArray(room.state.game.finishOrder) ? room.state.game.finishOrder : [];
-          if (!finishOrder.includes(mySeat)) finishOrder.push(mySeat);
-          room.state.game.finishOrder = finishOrder;
-
-          if (liveMode === MODE_CLASSIC) {
-            const landlordSeat = room.state.game.landlordSeat;
-            const winnerSeats = mySeat === landlordSeat
-              ? [landlordSeat]
-              : (liveSeats.filter((s) => s !== landlordSeat));
-            room.status = "finished";
-            room.state.game.winnerSeat = winnerSeats[0];
-            room.state.game.winnerSeats = winnerSeats;
-            room.state.game.winnerSide = mySeat === landlordSeat ? "landlord" : "farmers";
-            room.state.game.updatedAt = Date.now();
-            return;
-          }
-
-          if (liveMode === MODE_POKER_B4) {
-            const ownerSeat = room.state.game.teamCall?.ownerSeat;
-            const mateSeat = room.state.game.teamCall?.teammateSeat;
-            const hasPair = Number.isInteger(ownerSeat) && Number.isInteger(mateSeat);
-            if (hasPair) {
-              const pairSeats = [ownerSeat, mateSeat];
-              const oppSeats = liveSeats.filter((s) => !pairSeats.includes(s));
-              const pairDone = pairSeats.every((s) => finishOrder.includes(s));
-              const oppDone = oppSeats.some((s) => finishOrder.includes(s));
-
-              if (pairDone || oppDone) {
-                room.status = "finished";
-                if (pairDone && !oppDone) {
-                  room.state.game.winnerSide = "team_b_pair";
-                  room.state.game.winnerSeats = pairSeats;
-                  room.state.game.winnerSeat = pairSeats[0];
-                } else {
-                  room.state.game.winnerSide = "team_b_opp";
-                  room.state.game.winnerSeats = oppSeats;
-                  room.state.game.winnerSeat = oppSeats[0];
-                }
-                room.state.game.updatedAt = Date.now();
-                return;
-              }
-            }
-
-            const aliveSeats = liveSeats.filter((seat) => {
-              const uid = room.state.seats[String(seat)];
-              return (room.state.publicCounts[uid] || 0) > 0;
-            });
-            const nextLead = aliveSeats.length ? nextSeat(aliveSeats, mySeat) : mySeat;
-            room.state.game.activeSeats = aliveSeats;
-            room.state.game.passNeed = Math.max(aliveSeats.length - 1, 1);
-            room.state.game.turnSeat = nextLead;
-            room.state.game.trickLeaderSeat = nextLead;
-            room.state.game.lastPlay = null;
-            room.state.game.passStreak = 0;
-            room.state.game.updatedAt = Date.now();
-            return;
-          }
-
-          room.status = "finished";
-          room.state.game.winnerSeat = mySeat;
-          room.state.game.winnerSeats = [mySeat];
-          room.state.game.winnerSide = liveMode === MODE_SOLO_VALIDATE ? "solo" : "single";
-          room.state.game.updatedAt = Date.now();
-          return;
-        }
-
-        room.state.game.turnSeat = nextSeat(liveSeats, mySeat);
-        room.state.game.updatedAt = Date.now();
+        finalizeAfterPlay(room, liveMode, liveSeats, mySeat, state.uid);
       });
 
       if (!roomTx.committed) {
@@ -2207,12 +2728,15 @@
       seatsWrap.innerHTML = seatIndexes.map((seat) => {
         const uid = room.seats?.[String(seat)] || null;
         const isMine = uid && uid === state.uid;
-        const label = uid ? escapeHtml(nameOf(uid)) : "空位";
+        const aiTag = uid && room.members?.[uid]?.isAi ? " <span class='pill'>AI</span>" : "";
+        const label = uid ? `${escapeHtml(nameOf(uid))}${aiTag}` : "空位";
         const landlord = room.game?.landlordSeat === seat ? "<span class='pill'>地主</span>" : "";
         const turn = room.game?.turnSeat === seat && room.status === "playing" ? "<span class='pill'>出牌中</span>" : "";
         const count = uid ? `<div class='small'>剩余牌：${room.publicCounts?.[uid] ?? "-"}</div>` : "";
         const btn = uid
-          ? (isMine ? `<button data-seat='stand'>离座</button>` : "")
+          ? (isMine
+            ? `<button data-seat='stand'>离座</button>`
+            : (room.members?.[uid]?.isAi ? `<button data-seat='${seat}'>接管AI座位</button>` : ""))
           : `<button data-seat='${seat}'>入座</button>`;
         const turnClass = room.game?.turnSeat === seat && room.status === "playing" ? "turning" : "";
 
@@ -2264,7 +2788,8 @@
         <div>同步：${state.realtimeReady ? "实时通道" : "轮询"}</div>
         <div style="margin-top: 6px;">成员：${members.map(([uid, v]) => {
           const host = uid === room.hostUid ? "(房主)" : "";
-          return `${escapeHtml(v.nick || uid.slice(0, 6))}${host}`;
+          const ai = v?.isAi ? "(AI)" : "";
+          return `${escapeHtml(v.nick || uid.slice(0, 6))}${host}${ai}`;
         }).join("、")}</div>
       `;
     }
@@ -2420,7 +2945,7 @@
           : (mode === MODE_SOLO_VALIDATE
           ? activeSeats.length === 1
           : (activeSeats.length >= TABLE_MIN_PLAYERS && activeSeats.length <= TABLE_MAX_PLAYERS)));
-      startBtn.disabled = !(room && isHost && room.status === "lobby" && seatOk);
+      startBtn.disabled = !(room && isHost && room.status === "lobby" && mySeat !== null && activeSeats.length >= 1);
       hostTakeoverBtn.disabled = !(room && room.members && !room.members[room.hostUid] && room.members[state.uid]);
       playSelectedBtn.disabled = !(room && room.status === "playing" && mySeat === room.game?.turnSeat && room.game?.bottomClaimed && state.selectedCardIds.length > 0);
       passBtn.disabled = !(room && room.status === "playing" && mySeat === room.game?.turnSeat && room.game?.lastPlay && room.game?.trickLeaderSeat !== mySeat);
