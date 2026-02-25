@@ -6,18 +6,24 @@
   <title>斗地主原型（Supabase）</title>
   <style>
     :root {
-      --bg: #f3efe6;
-      --card: #fffdf8;
-      --ink: #201d18;
-      --accent: #126842;
-      --warn: #934214;
-      --line: #d7cec0;
+      --bg: #f1ecdf;
+      --card: rgba(255, 253, 247, 0.88);
+      --ink: #211d17;
+      --accent: #0e6c43;
+      --warn: #96421a;
+      --line: #d4cab6;
+      --gold: #d6ab42;
+      --surface: #f8f3e9;
+      --shadow: 0 10px 28px rgba(45, 36, 22, 0.13);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
-      background: radial-gradient(circle at top left, #fff7e8, var(--bg));
+      background:
+        radial-gradient(circle at 8% -2%, #fff6da 0, transparent 34%),
+        radial-gradient(circle at 94% 5%, #fcead7 0, transparent 28%),
+        linear-gradient(160deg, #f6f2e8 0%, #efe7d8 100%);
       color: var(--ink);
     }
     .wrap {
@@ -30,8 +36,10 @@
     .panel {
       background: var(--card);
       border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 12px;
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(5px);
     }
     .row {
       display: flex;
@@ -49,13 +57,22 @@
       background: #fff;
       color: var(--ink);
     }
-    button { cursor: pointer; background: #f7f3ea; }
+    button {
+      cursor: pointer;
+      background: #f7f3ea;
+      transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+    }
+    button:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 5px 14px rgba(38, 30, 18, .16);
+      background: #fff9ee;
+    }
     button.primary { border-color: #115f3b; background: var(--accent); color: #fff; }
     button.warn { border-color: #82370f; background: var(--warn); color: #fff; }
     button:disabled { opacity: .5; cursor: not-allowed; }
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
       gap: 12px;
     }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
@@ -63,37 +80,47 @@
     .muted { color: #6f675d; }
     .seats {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
       gap: 8px;
     }
     .seat {
-      border: 1px dashed var(--line);
-      border-radius: 10px;
+      border: 1px dashed #ccbfa8;
+      border-radius: 12px;
       padding: 10px;
       min-height: 108px;
-      background: #fff;
+      background: linear-gradient(180deg, #fffdfa 0%, #faf5ec 100%);
     }
-    .seat.you { border-color: #1a7a4c; background: #edf8f2; }
+    .seat.you {
+      border-color: #1a7a4c;
+      background: linear-gradient(180deg, #eefbf3 0%, #e4f3ea 100%);
+    }
     .pill {
       display: inline-block;
-      border: 1px solid var(--line);
+      border: 1px solid #cdbf9f;
       border-radius: 999px;
       padding: 2px 8px;
       font-size: 12px;
       margin-right: 6px;
+      background: #fff9ec;
     }
     #handCards {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
+      gap: 8px;
       min-height: 48px;
     }
     .card-btn {
-      border: 1px solid #c5bba8;
-      border-radius: 8px;
-      background: #fff;
-      min-width: 48px;
-      padding: 7px 8px;
+      border: 1px solid #cbbda4;
+      border-radius: 10px;
+      background: linear-gradient(180deg, #fff 0%, #f8f4ea 100%);
+      min-width: 52px;
+      padding: 8px 10px;
+      font-weight: 600;
+      box-shadow: 0 4px 10px rgba(53, 43, 26, .12);
+    }
+    .card-btn:hover:not(:disabled) {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 18px rgba(42, 33, 19, .18);
     }
     .red { color: #b61f1f; }
     .log {
@@ -105,6 +132,25 @@
     .log li { margin-bottom: 4px; }
     .ok { color: #126842; }
     .err { color: #9e3316; }
+    .hero-note {
+      margin-top: 6px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: linear-gradient(90deg, #fff7e4 0%, #f8efd9 100%);
+      border: 1px solid #e2d2b3;
+      color: #6a5731;
+      font-size: 12px;
+    }
+    .seat.turning {
+      border-color: #d0972f;
+      box-shadow: 0 0 0 2px rgba(213, 158, 46, .16) inset;
+    }
+    @media (max-width: 680px) {
+      h1 { font-size: 17px; }
+      .wrap { padding: 12px; }
+      .panel { padding: 12px; }
+      .card-btn { min-width: 48px; padding: 7px 8px; }
+    }
   </style>
 </head>
 <body>
@@ -114,7 +160,7 @@
         <h1>斗地主原型（Supabase，非 Google 依赖）</h1>
         <div id="authStatus" class="small">登录中...</div>
       </div>
-      <div class="small">房间上限 9 人，3 人对局。当前仅实现“单牌比较”，用于联机原型验证。</div>
+      <div class="hero-note">房间上限 9 人，支持 2-4 人对局。当前是原型规则：单牌比较，重点验证联机流程与手感。</div>
     </div>
 
     <div class="panel">
@@ -185,6 +231,10 @@
       url: "https://eavgvsmklualdetrrznf.supabase.co",
       publishableKey: "sb_publishable_hl2JO9TOrGCldYEIitM0qA_7o6XNek_"
     };
+
+    const TABLE_MIN_PLAYERS = 2;
+    const TABLE_MAX_PLAYERS = 4;
+    const TABLE_SEAT_COUNT = 4;
 
     const state = {
       uid: "",
@@ -284,10 +334,33 @@
       })
       : null;
 
+    function buildSeatIndexes(seatCount = TABLE_SEAT_COUNT) {
+      const n = Math.max(TABLE_MIN_PLAYERS, Math.min(TABLE_SEAT_COUNT, Number(seatCount) || TABLE_SEAT_COUNT));
+      return Array.from({ length: n }, (_, i) => i);
+    }
+
+    function activeSeatsFrom(seats, seatCount = TABLE_SEAT_COUNT) {
+      return buildSeatIndexes(seatCount).filter((seat) => !!seats?.[String(seat)]);
+    }
+
+    function getBottomCardCount(playerCount) {
+      if (playerCount === 3) return 3;
+      if (playerCount === 2 || playerCount === 4) return 2;
+      return 2;
+    }
+
     function ensureRoomStateShape(work) {
       work.state = work.state || {};
       work.state.members = work.state.members || {};
-      work.state.seats = work.state.seats || { "0": null, "1": null, "2": null };
+      work.state.seatCount = Math.max(
+        TABLE_MIN_PLAYERS,
+        Math.min(TABLE_SEAT_COUNT, Number(work.state.seatCount) || TABLE_SEAT_COUNT)
+      );
+      work.state.seats = work.state.seats || {};
+      for (const seat of buildSeatIndexes(work.state.seatCount)) {
+        const key = String(seat);
+        if (!(key in work.state.seats)) work.state.seats[key] = null;
+      }
       work.state.ready = work.state.ready || {};
       work.state.publicCounts = work.state.publicCounts || {};
       if (typeof work.max_members !== "number") work.max_members = 9;
@@ -301,8 +374,9 @@
         hostUid: row.host_uid,
         maxMembers: row.max_members || 9,
         status: row.status,
+        seatCount: s.seatCount || TABLE_SEAT_COUNT,
         members: s.members || {},
-        seats: s.seats || { "0": null, "1": null, "2": null },
+        seats: s.seats || {},
         ready: s.ready || {},
         publicCounts: s.publicCounts || {},
         game: s.game || null,
@@ -318,12 +392,11 @@
       return null;
     }
 
-    function nextSeat(seats, cur) {
-      for (let i = 1; i <= 3; i += 1) {
-        const candidate = (cur + i) % 3;
-        if (seats[String(candidate)]) return candidate;
-      }
-      return cur;
+    function nextSeat(activeSeats, cur) {
+      if (!activeSeats.length) return cur;
+      const idx = activeSeats.indexOf(cur);
+      if (idx === -1) return activeSeats[0];
+      return activeSeats[(idx + 1) % activeSeats.length];
     }
 
     function makeDeck() {
@@ -569,7 +642,8 @@
                   joinedAt: Date.now()
                 }
               },
-              seats: { "0": null, "1": null, "2": null },
+              seatCount: TABLE_SEAT_COUNT,
+              seats: { "0": null, "1": null, "2": null, "3": null },
               ready: {},
               publicCounts: {},
               game: null
@@ -668,8 +742,9 @@
           delete room.state.ready[state.uid];
           delete room.state.publicCounts[state.uid];
 
-          for (const s of ["0", "1", "2"]) {
-            if (room.state.seats[s] === state.uid) room.state.seats[s] = null;
+          for (const s of buildSeatIndexes(room.state.seatCount)) {
+            const key = String(s);
+            if (room.state.seats[key] === state.uid) room.state.seats[key] = null;
           }
 
           const left = Object.keys(members);
@@ -712,8 +787,8 @@
       const seats = room.seats || {};
       let needFix = false;
 
-      for (const s of ["0", "1", "2"]) {
-        const uid = seats[s];
+      for (const s of buildSeatIndexes(room.seatCount)) {
+        const uid = seats[String(s)];
         if (uid && !members[uid]) {
           needFix = true;
           break;
@@ -723,10 +798,11 @@
 
       await mutateRoom(state.roomId, (work) => {
         ensureRoomStateShape(work);
-        for (const s of ["0", "1", "2"]) {
-          const uid = work.state.seats[s];
+        for (const s of buildSeatIndexes(work.state.seatCount)) {
+          const key = String(s);
+          const uid = work.state.seats[key];
           if (uid && !work.state.members[uid]) {
-            work.state.seats[s] = null;
+            work.state.seats[key] = null;
             delete work.state.ready[uid];
             delete work.state.publicCounts[uid];
           }
@@ -748,8 +824,9 @@
         if (room.status !== "lobby") return false;
         if (!room.state.members[state.uid]) return false;
 
-        for (const s of ["0", "1", "2"]) {
-          if (room.state.seats[s] === state.uid) room.state.seats[s] = null;
+        for (const s of buildSeatIndexes(room.state.seatCount)) {
+          const key = String(s);
+          if (room.state.seats[key] === state.uid) room.state.seats[key] = null;
         }
 
         if (targetSeat !== null) {
@@ -798,52 +875,56 @@
       if (!state.roomId || !state.room) return;
       if (state.room.hostUid !== state.uid || state.room.status !== "lobby") return;
 
+      let activeSeats = [];
       let seatUids = [];
       let hands = null;
       const deck = shuffle(makeDeck());
-      const bottom = deck.slice(51);
+      let bottom = [];
 
       const tx = await mutateRoom(state.roomId, (room) => {
         ensureRoomStateShape(room);
         if (room.host_uid !== state.uid || room.status !== "lobby") return false;
 
-        seatUids = [room.state.seats["0"], room.state.seats["1"], room.state.seats["2"]];
-        if (seatUids.some((u) => !u)) return false;
+        activeSeats = activeSeatsFrom(room.state.seats, room.state.seatCount);
+        if (activeSeats.length < TABLE_MIN_PLAYERS || activeSeats.length > TABLE_MAX_PLAYERS) return false;
+
+        seatUids = activeSeats.map((seat) => room.state.seats[String(seat)]);
         if (seatUids.some((uid) => !room.state.ready[uid])) return false;
 
-        hands = {
-          [seatUids[0]]: {},
-          [seatUids[1]]: {},
-          [seatUids[2]]: {}
-        };
+        const bottomCount = getBottomCardCount(activeSeats.length);
+        const dealCount = deck.length - bottomCount;
+        bottom = deck.slice(dealCount);
 
-        for (let i = 0; i < 51; i += 1) {
-          const uid = seatUids[i % 3];
+        hands = Object.fromEntries(seatUids.map((uid) => [uid, {}]));
+        room.state.publicCounts = Object.fromEntries(seatUids.map((uid) => [uid, 0]));
+
+        for (let i = 0; i < dealCount; i += 1) {
+          const uid = seatUids[i % seatUids.length];
           hands[uid][deck[i].id] = deck[i];
+          room.state.publicCounts[uid] += 1;
         }
 
-        room.state.publicCounts = {
-          [seatUids[0]]: 17,
-          [seatUids[1]]: 17,
-          [seatUids[2]]: 17
-        };
+        const startSeat = activeSeats[0];
+        const bidMap = Object.fromEntries(activeSeats.map((seat) => [String(seat), null]));
 
         const round = ((room.state.game && room.state.game.round) || 0) + 1;
         room.status = "bidding";
         room.state.game = {
           round,
+          activeSeats,
           bid: {
-            currentSeat: 0,
+            currentSeat: startSeat,
             acted: 0,
-            bids: { "0": null, "1": null, "2": null },
+            bids: bidMap,
             highestBid: 0,
             highestSeat: null
           },
           landlordSeat: null,
           bottomCards: bottom,
           bottomClaimed: false,
-          turnSeat: 0,
+          turnSeat: startSeat,
           trickLeaderSeat: null,
+          passNeed: Math.max(activeSeats.length - 1, 1),
           passStreak: 0,
           lastPlay: null,
           winnerSeat: null,
@@ -857,11 +938,7 @@
       if (!seatUids.length || !hands) return;
 
       try {
-        await Promise.all([
-          writeHand(seatUids[0], hands[seatUids[0]]),
-          writeHand(seatUids[1], hands[seatUids[1]]),
-          writeHand(seatUids[2], hands[seatUids[2]])
-        ]);
+        await Promise.all(seatUids.map((uid) => writeHand(uid, hands[uid])));
         log("发牌完成，进入叫分阶段");
       } catch (err) {
         showMsg(`发牌写入失败：${friendlyErr(err)}`, true);
@@ -892,18 +969,21 @@
           b.highestSeat = mySeat;
         }
 
-        const done = b.acted >= 3 || bidVal === 3;
+        const activeSeats = (room.state.game.activeSeats || activeSeatsFrom(room.state.seats, room.state.seatCount))
+          .filter((seat) => !!room.state.seats[String(seat)]);
+        const done = b.acted >= activeSeats.length || bidVal === 3;
         if (!done) {
-          b.currentSeat = nextSeat(room.state.seats, mySeat);
+          b.currentSeat = nextSeat(activeSeats, mySeat);
           room.state.game.updatedAt = Date.now();
           return;
         }
 
-        const landlordSeat = b.highestSeat === null ? 0 : b.highestSeat;
+        const landlordSeat = b.highestSeat === null ? activeSeats[0] : b.highestSeat;
         room.state.game.landlordSeat = landlordSeat;
         room.status = "playing";
         room.state.game.turnSeat = landlordSeat;
         room.state.game.trickLeaderSeat = landlordSeat;
+        room.state.game.passNeed = Math.max(activeSeats.length - 1, 1);
         room.state.game.passStreak = 0;
         room.state.game.lastPlay = null;
         room.state.game.bottomClaimed = false;
@@ -994,7 +1074,8 @@
           return;
         }
 
-        room.state.game.turnSeat = nextSeat(room.state.seats, mySeat);
+        const liveSeats = (room.state.game.activeSeats || []).filter((seat) => !!room.state.seats[String(seat)]);
+        room.state.game.turnSeat = nextSeat(liveSeats, mySeat);
         room.state.game.updatedAt = Date.now();
       });
 
@@ -1018,12 +1099,15 @@
         if (room.state.game.trickLeaderSeat === mySeat) return false;
 
         room.state.game.passStreak += 1;
-        if (room.state.game.passStreak >= 2) {
+        const liveSeats = (room.state.game.activeSeats || []).filter((seat) => !!room.state.seats[String(seat)]);
+        const passNeed = room.state.game.passNeed || Math.max(liveSeats.length - 1, 1);
+
+        if (room.state.game.passStreak >= passNeed) {
           room.state.game.turnSeat = room.state.game.trickLeaderSeat;
           room.state.game.lastPlay = null;
           room.state.game.passStreak = 0;
         } else {
-          room.state.game.turnSeat = nextSeat(room.state.seats, mySeat);
+          room.state.game.turnSeat = nextSeat(liveSeats, mySeat);
         }
         room.state.game.updatedAt = Date.now();
       });
@@ -1042,7 +1126,8 @@
       }
 
       const mySeat = getMySeat(room);
-      seatsWrap.innerHTML = [0, 1, 2].map((seat) => {
+      const seatIndexes = buildSeatIndexes(room.seatCount);
+      seatsWrap.innerHTML = seatIndexes.map((seat) => {
         const uid = room.seats?.[String(seat)] || null;
         const isMine = uid && uid === state.uid;
         const label = uid ? escapeHtml(nameOf(uid)) : "空位";
@@ -1053,9 +1138,10 @@
         const btn = uid
           ? (isMine ? `<button data-seat='stand'>离座</button>` : "")
           : `<button data-seat='${seat}'>入座</button>`;
+        const turnClass = room.game?.turnSeat === seat && room.status === "playing" ? "turning" : "";
 
         return `
-          <div class="seat ${mySeat === seat ? "you" : ""}">
+          <div class="seat ${mySeat === seat ? "you" : ""} ${turnClass}">
             <div><strong>${seat + 1} 号位</strong></div>
             <div style="margin-top: 4px;">${label}</div>
             <div style="margin-top: 6px;">${ready}${landlord}${turn}</div>
@@ -1085,10 +1171,12 @@
 
       const room = state.room;
       const members = Object.entries(room.members || {}).sort((a, b) => (a[1].joinedAt || 0) - (b[1].joinedAt || 0));
+      const seated = activeSeatsFrom(room.seats, room.seatCount).length;
       roomInfo.innerHTML = `
         <div>状态：<span class="pill">${escapeHtml(room.status || "-")}</span></div>
         <div>房主：${escapeHtml(nameOf(room.hostUid))}</div>
         <div>在线人数：${members.length}/${room.maxMembers || 9}</div>
+        <div>入座人数：${seated}（可开局范围：${TABLE_MIN_PLAYERS}-${TABLE_MAX_PLAYERS}）</div>
         <div>同步：${state.realtimeReady ? "实时通道" : "轮询"}</div>
         <div style="margin-top: 6px;">成员：${members.map(([uid, v]) => {
           const host = uid === room.hostUid ? "(房主)" : "";
@@ -1112,10 +1200,11 @@
       if (room.status === "bidding") {
         const curUid = room.seats?.[String(game.bid.currentSeat)];
         const bids = game.bid.bids || {};
+        const bidLabels = (game.activeSeats || []).map((seat) => `${seat + 1}号(${bids[String(seat)] ?? "-"})`).join(" / ");
         gameInfo.innerHTML = `
           <div>阶段：叫分</div>
           <div>当前：${escapeHtml(nameOf(curUid))}</div>
-          <div>叫分记录：1号(${bids["0"] ?? "-"}) / 2号(${bids["1"] ?? "-"}) / 3号(${bids["2"] ?? "-"})</div>
+          <div>叫分记录：${escapeHtml(bidLabels || "-")}</div>
         `;
         bidWrap.style.display = mySeat === game.bid.currentSeat ? "flex" : "none";
         playActions.style.display = "none";
@@ -1137,7 +1226,7 @@
         gameInfo.innerHTML = `
           <div>阶段：已结束</div>
           <div>胜者：${escapeHtml(nameOf(winnerUid))}</div>
-          <div class="small">房主可重新开始（3人入座并准备）</div>
+          <div class="small">房主可重新开始（${TABLE_MIN_PLAYERS}-${TABLE_MAX_PLAYERS}人入座并准备）</div>
         `;
         bidWrap.style.display = "none";
         playActions.style.display = "none";
@@ -1176,8 +1265,9 @@
       toggleReadyBtn.disabled = !(room && room.status === "lobby" && mySeat !== null);
       toggleReadyBtn.textContent = isReady ? "取消准备" : "准备";
 
-      const seatOk = room?.seats?.["0"] && room?.seats?.["1"] && room?.seats?.["2"];
-      const readyOk = seatOk && [room.seats["0"], room.seats["1"], room.seats["2"]].every((uid) => room.ready?.[uid]);
+      const activeSeats = room ? activeSeatsFrom(room.seats, room.seatCount) : [];
+      const seatOk = activeSeats.length >= TABLE_MIN_PLAYERS && activeSeats.length <= TABLE_MAX_PLAYERS;
+      const readyOk = seatOk && activeSeats.every((seat) => room.ready?.[room.seats[String(seat)]]);
       startBtn.disabled = !(room && isHost && room.status === "lobby" && readyOk);
       hostTakeoverBtn.disabled = !(room && room.members && !room.members[room.hostUid] && room.members[state.uid]);
       passBtn.disabled = !(room && room.status === "playing" && mySeat === room.game?.turnSeat && room.game?.lastPlay && room.game?.trickLeaderSeat !== mySeat);
