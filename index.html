@@ -224,6 +224,19 @@
       gap: 4px;
       min-width: 68px;
     }
+    .played-turn {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-right: 8px;
+      padding-right: 8px;
+      border-right: 1px dashed #d8c8ae;
+    }
+    .played-turn-cards {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
     .played-card {
       width: 54px;
       height: 78px;
@@ -239,6 +252,23 @@
       white-space: nowrap;
       text-overflow: ellipsis;
       text-align: center;
+    }
+    .played-call-row {
+      flex: 1 0 100%;
+      display: flex;
+      align-items: center;
+      padding-bottom: 6px;
+      margin-bottom: 2px;
+      border-bottom: 1px dashed #d8c8ae;
+    }
+    .played-card-call {
+      width: 40px;
+      height: 58px;
+      border-radius: 7px;
+    }
+    .played-cap-call {
+      font-size: 10px;
+      max-width: 120px;
     }
     #teamCallOptions .card-btn {
       margin-left: 0;
@@ -287,6 +317,7 @@
       .card-img { width: 62px; height: 90px; }
       .card-btn { margin-left: -30px; }
       .played-card { width: 46px; height: 66px; }
+      .played-card-call { width: 34px; height: 50px; }
     }
   </style>
 </head>
@@ -931,6 +962,9 @@
       for (const seat of buildSeatIndexes(work.state.seatCount)) {
         const key = String(seat);
         if (!(key in work.state.seats)) work.state.seats[key] = null;
+      }
+      if (work.state.game && !Array.isArray(work.state.game.trickPlays)) {
+        work.state.game.trickPlays = [];
       }
       if (typeof work.max_members !== "number") work.max_members = 9;
     }
@@ -1861,6 +1895,7 @@
           passNeed: Math.max(activeSeats.length - 1, 1),
           passStreak: 0,
           lastPlay: null,
+          trickPlays: [],
           teamCall,
           finishOrder: [],
           winnerSeats: [],
@@ -1941,6 +1976,7 @@
         room.state.game.passNeed = Math.max(activeSeats.length - 1, 1);
         room.state.game.passStreak = 0;
         room.state.game.lastPlay = null;
+        room.state.game.trickPlays = [];
         room.state.game.bottomClaimed = false;
         room.state.game.updatedAt = Date.now();
       });
@@ -2092,6 +2128,7 @@
         room.state.game.turnSeat = nextLead;
         room.state.game.trickLeaderSeat = nextLead;
         room.state.game.lastPlay = null;
+        room.state.game.trickPlays = [];
         room.state.game.passStreak = 0;
         room.state.game.updatedAt = Date.now();
         return false;
@@ -2368,6 +2405,7 @@
         if (room.state.game.passStreak >= passNeed) {
           room.state.game.turnSeat = room.state.game.trickLeaderSeat;
           room.state.game.lastPlay = null;
+          room.state.game.trickPlays = [];
           room.state.game.passStreak = 0;
         } else {
           room.state.game.turnSeat = nextSeat(liveSeats, actorSeat);
@@ -2412,7 +2450,7 @@
         }
 
         const labels = analyzed.cards.map((c) => c.label || cardPrettyName(c)).join(" ");
-        room.state.game.lastPlay = {
+        const playRecord = {
           seat: actorSeat,
           uid: actorUid,
           type: analyzed.type,
@@ -2424,6 +2462,9 @@
           power: analyzed.mainValue,
           at: Date.now()
         };
+        room.state.game.lastPlay = playRecord;
+        if (!Array.isArray(room.state.game.trickPlays)) room.state.game.trickPlays = [];
+        room.state.game.trickPlays.push(playRecord);
         updateAiMemoryWithPlay(room.state.game, analyzed);
         room.state.game.trickLeaderSeat = actorSeat;
         room.state.game.passStreak = 0;
@@ -2490,6 +2531,7 @@
         work.state.game.passNeed = Math.max(activeSeats.length - 1, 1);
         work.state.game.passStreak = 0;
         work.state.game.lastPlay = null;
+        work.state.game.trickPlays = [];
         work.state.game.bottomClaimed = false;
         work.state.game.updatedAt = Date.now();
       });
@@ -2642,6 +2684,8 @@
         };
 
         room.state.game.lastPlay = playRecord;
+        if (!Array.isArray(room.state.game.trickPlays)) room.state.game.trickPlays = [];
+        room.state.game.trickPlays.push(playRecord);
         updateAiMemoryWithPlay(room.state.game, analyzed);
         room.state.game.trickLeaderSeat = mySeat;
         room.state.game.passStreak = 0;
@@ -2706,6 +2750,7 @@
         if (room.state.game.passStreak >= passNeed) {
           room.state.game.turnSeat = room.state.game.trickLeaderSeat;
           room.state.game.lastPlay = null;
+          room.state.game.trickPlays = [];
           room.state.game.passStreak = 0;
         } else {
           room.state.game.turnSeat = nextSeat(liveSeats, mySeat);
@@ -3048,33 +3093,65 @@
         const src = cardImageUrl(card);
         const alt = escapeHtml(cardPrettyName(card));
         extra = `
-          <div class="played-chip">
-            <img class="played-card" src="${src}" alt="${alt}" />
-            <div class="played-cap">模式B队友牌（队友未公开）</div>
+          <div class="played-call-row">
+            <div class="played-chip">
+              <img class="played-card played-card-call" src="${src}" alt="${alt}" />
+              <div class="played-cap played-cap-call">模式B队友牌（队友未公开）</div>
+            </div>
           </div>
         `;
       }
 
-      const last = room.game.lastPlay;
-      if (!last) {
-        playedNow.innerHTML = `${extra}<span class="small muted">上一手为空（新一轮开始）</span>`;
+      const trickPlays = Array.isArray(room.game.trickPlays) ? room.game.trickPlays : [];
+      if (!trickPlays.length) {
+        const last = room.game.lastPlay;
+        if (!last) {
+          playedNow.innerHTML = `${extra}<span class="small muted">本轮暂无出牌（新一轮开始）</span>`;
+          return;
+        }
+        const cards = (Array.isArray(last.cards) ? last.cards : [last]).map((x) => normalizeCard(x)).filter(Boolean);
+        if (!cards.length) {
+          playedNow.innerHTML = `${extra}<span class="small muted">本轮暂无可显示的出牌</span>`;
+          return;
+        }
+        const who = escapeHtml(last.uid === state.uid ? "你" : nameOf(last.uid));
+        playedNow.innerHTML = `${extra}
+          <div class="small muted">当前房间为旧局数据，仅显示最近一手：</div>
+          ${cards.map((card) => {
+            const src = cardImageUrl(card);
+            const alt = escapeHtml(cardPrettyName(card));
+            return `
+              <div class="played-chip">
+                <img class="played-card" src="${src}" alt="${alt}" />
+                <div class="played-cap">${who}</div>
+              </div>
+            `;
+          }).join("")}
+        `;
         return;
       }
 
-      const cards = (Array.isArray(last.cards) ? last.cards : [last]).map((x) => normalizeCard(x)).filter(Boolean);
-      if (!cards.length) {
-        playedNow.innerHTML = `${extra}<span class="small muted">上一手数据不可用</span>`;
-        return;
-      }
-
-      const who = escapeHtml(last.uid === state.uid ? "你" : nameOf(last.uid));
-      playedNow.innerHTML = `${extra}${cards.map((card) => {
-        const src = cardImageUrl(card);
-        const alt = escapeHtml(cardPrettyName(card));
+      playedNow.innerHTML = `${extra}${trickPlays.map((play, idx) => {
+        const who = escapeHtml(play.uid === state.uid ? "你" : nameOf(play.uid));
+        const cards = (Array.isArray(play.cards) ? play.cards : [play]).map((x) => normalizeCard(x)).filter(Boolean);
+        if (!cards.length) {
+          return `<div class="small muted">第 ${idx + 1} 手：${who}（数据不可用）</div>`;
+        }
         return `
-          <div class="played-chip">
-            <img class="played-card" src="${src}" alt="${alt}" />
-            <div class="played-cap">${who}</div>
+          <div class="played-turn">
+            <div class="small">${idx + 1}. ${who}</div>
+            <div class="played-turn-cards">
+              ${cards.map((card) => {
+                const src = cardImageUrl(card);
+                const alt = escapeHtml(cardPrettyName(card));
+                return `
+                  <div class="played-chip">
+                    <img class="played-card" src="${src}" alt="${alt}" />
+                    <div class="played-cap">${alt}</div>
+                  </div>
+                `;
+              }).join("")}
+            </div>
           </div>
         `;
       }).join("")}`;
