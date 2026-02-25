@@ -107,20 +107,34 @@
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      min-height: 48px;
+      min-height: 112px;
+      align-items: flex-end;
     }
     .card-btn {
-      border: 1px solid #cbbda4;
-      border-radius: 10px;
-      background: linear-gradient(180deg, #fff 0%, #f8f4ea 100%);
-      min-width: 52px;
-      padding: 8px 10px;
-      font-weight: 600;
-      box-shadow: 0 4px 10px rgba(53, 43, 26, .12);
+      border: 0;
+      border-radius: 12px;
+      background: transparent;
+      min-width: auto;
+      padding: 0;
+      box-shadow: none;
     }
-    .card-btn:hover:not(:disabled) {
-      transform: translateY(-3px);
-      box-shadow: 0 8px 18px rgba(42, 33, 19, .18);
+    .card-img {
+      width: 72px;
+      height: 104px;
+      display: block;
+      border-radius: 12px;
+      box-shadow: 0 6px 14px rgba(44, 33, 18, .2);
+      transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
+    }
+    .card-btn:hover:not(:disabled) .card-img {
+      transform: translateY(-6px);
+      box-shadow: 0 12px 20px rgba(42, 33, 19, .24);
+      filter: saturate(1.08);
+    }
+    .card-btn:disabled .card-img {
+      filter: grayscale(.22) saturate(.74) brightness(.93);
+      opacity: .8;
+      box-shadow: 0 4px 9px rgba(44, 33, 18, .14);
     }
     .red { color: #b61f1f; }
     .log {
@@ -149,7 +163,7 @@
       h1 { font-size: 17px; }
       .wrap { padding: 12px; }
       .panel { padding: 12px; }
-      .card-btn { min-width: 48px; padding: 7px 8px; }
+      .card-img { width: 62px; height: 90px; }
     }
   </style>
 </head>
@@ -399,6 +413,51 @@
       return activeSeats[(idx + 1) % activeSeats.length];
     }
 
+    const SUIT_SYMBOL = { S: "♠", H: "♥", C: "♣", D: "♦" };
+    const cardImageCache = new Map();
+
+    function cardPrettyName(card) {
+      if (!card) return "-";
+      if (card.id === "SJ") return "小王";
+      if (card.id === "BJ") return "大王";
+      return `${card.rank}${SUIT_SYMBOL[card.suit] || ""}`;
+    }
+
+    function cardSvg(card) {
+      const isRed = !!card.red;
+      const color = isRed ? "#b51221" : "#151515";
+      const border = isRed ? "#d79aa0" : "#b4b9bf";
+      const rank = card.id === "SJ" || card.id === "BJ" ? "JOKER" : card.rank;
+      const symbol = card.id === "SJ" || card.id === "BJ" ? "★" : (SUIT_SYMBOL[card.suit] || "");
+      const center = card.id === "SJ" ? "JOKER" : card.id === "BJ" ? "JOKER+" : symbol;
+
+      return `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 252">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f6f0e5"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="168" height="240" rx="18" fill="url(#g)" stroke="${border}" stroke-width="2"/>
+  <text x="20" y="34" font-size="24" font-family="Georgia, serif" font-weight="700" fill="${color}">${rank}</text>
+  <text x="22" y="58" font-size="24" font-family="Georgia, serif" fill="${color}">${symbol}</text>
+  <text x="90" y="142" text-anchor="middle" font-size="${card.id === "SJ" || card.id === "BJ" ? 26 : 62}" font-family="Georgia, serif" font-weight="700" fill="${color}">${center}</text>
+  <g transform="translate(180,252) rotate(180)">
+    <text x="20" y="34" font-size="24" font-family="Georgia, serif" font-weight="700" fill="${color}">${rank}</text>
+    <text x="22" y="58" font-size="24" font-family="Georgia, serif" fill="${color}">${symbol}</text>
+  </g>
+</svg>`.trim();
+    }
+
+    function cardImageUrl(card) {
+      if (cardImageCache.has(card.id)) return cardImageCache.get(card.id);
+      const svg = cardSvg(card);
+      const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+      cardImageCache.set(card.id, url);
+      return url;
+    }
+
     function makeDeck() {
       const suits = ["S", "H", "C", "D"];
       const ranks = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"];
@@ -415,7 +474,7 @@
             rank: r,
             suit: s,
             power: rankPower[r],
-            label: `${r}${s}`,
+            label: `${r}${SUIT_SYMBOL[s]}`,
             red: s === "H" || s === "D"
           });
         }
@@ -1245,8 +1304,10 @@
         && getMySeat(state.room) === state.room?.game?.turnSeat;
 
       handCards.innerHTML = cards.map((c) => {
-        const red = c.red ? "red" : "";
-        return `<button class="card-btn ${red}" data-card="${escapeHtml(c.id)}" ${canPlay ? "" : "disabled"}>${escapeHtml(c.label)}</button>`;
+        const id = escapeHtml(c.id);
+        const title = escapeHtml(cardPrettyName(c));
+        const src = cardImageUrl(c);
+        return `<button class="card-btn" data-card="${id}" title="${title}" ${canPlay ? "" : "disabled"}><img class="card-img" src="${src}" alt="${title}" /></button>`;
       }).join("");
 
       handCards.querySelectorAll("button[data-card]").forEach((btn) => {
