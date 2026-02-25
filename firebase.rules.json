@@ -1,0 +1,26 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "rooms": {
+      "$roomId": {
+        ".read": "auth != null",
+        ".write": "auth != null && ((!data.exists() && newData.child('hostUid').val() === auth.uid) || data.child('members').child(auth.uid).exists() || newData.child('members').child(auth.uid).exists())",
+        "maxMembers": {
+          ".validate": "newData.isNumber() && newData.val() <= 9"
+        },
+        "status": {
+          ".validate": "newData.isString() && newData.val().matches(/^(lobby|bidding|playing|finished)$/)"
+        }
+      }
+    },
+    "privateHands": {
+      "$roomId": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && (auth.uid === $uid || root.child('rooms/' + $roomId + '/hostUid').val() === auth.uid)"
+        }
+      }
+    }
+  }
+}

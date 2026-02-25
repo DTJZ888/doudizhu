@@ -1,0 +1,1037 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>斗地主原型（Firebase）</title>
+  <style>
+    :root {
+      --bg: #f5f2ea;
+      --card: #fffdf8;
+      --ink: #1d1a16;
+      --accent: #1f7a4d;
+      --warn: #a14b18;
+      --line: #d8cfbf;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: radial-gradient(circle at top left, #fff8eb, var(--bg));
+      color: var(--ink);
+    }
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+    }
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+    h1 { margin: 0; font-size: 20px; }
+    h2 { margin: 0 0 8px; font-size: 16px; }
+    input, button {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 14px;
+      background: #fff;
+      color: var(--ink);
+    }
+    button { cursor: pointer; background: #f7f3ea; }
+    button.primary { border-color: #11653d; background: var(--accent); color: #fff; }
+    button.warn { border-color: #8e3d11; background: var(--warn); color: #fff; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 12px;
+    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .small { font-size: 12px; color: #5b554c; }
+    .muted { color: #6e685f; }
+    .seats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .seat {
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      min-height: 100px;
+      background: #fff;
+    }
+    .seat.you { border-color: #1a7a4c; background: #edf8f2; }
+    .pill {
+      display: inline-block;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 12px;
+      margin-right: 6px;
+    }
+    #handCards {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-height: 48px;
+    }
+    .card-btn {
+      border: 1px solid #c5bba8;
+      border-radius: 8px;
+      background: #fff;
+      min-width: 48px;
+      padding: 7px 8px;
+    }
+    .red { color: #b61f1f; }
+    .log {
+      max-height: 180px;
+      overflow: auto;
+      margin: 0;
+      padding-left: 18px;
+    }
+    .log li { margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel">
+      <div class="row" style="justify-content: space-between;">
+        <h1>斗地主原型（<9人房间，3人对局）</h1>
+        <div id="authStatus" class="small">登录中...</div>
+      </div>
+      <div class="small">简化规则：当前仅支持“单牌”比较（原型验证用），已接 Firebase 匿名登录 + Realtime Database。</div>
+    </div>
+
+    <div class="panel">
+      <h2>大厅</h2>
+      <div class="row">
+        <label>昵称</label>
+        <input id="nicknameInput" maxlength="12" placeholder="输入昵称" />
+        <button id="saveNickBtn">保存昵称</button>
+      </div>
+      <div class="row" style="margin-top: 8px;">
+        <button id="createRoomBtn" class="primary">创建房间</button>
+        <input id="roomCodeInput" maxlength="8" placeholder="输入房间码" class="mono" />
+        <button id="joinRoomBtn">加入房间</button>
+      </div>
+      <div class="row" style="margin-top: 8px;">
+        <span>当前房间：</span>
+        <span id="roomCodeLabel" class="mono">-</span>
+        <button id="copyLinkBtn">复制邀请链接</button>
+        <button id="leaveRoomBtn" class="warn">离开房间</button>
+      </div>
+      <div id="lobbyMsg" class="small muted" style="margin-top: 8px;"></div>
+    </div>
+
+    <div class="grid">
+      <div class="panel">
+        <h2>房间与座位</h2>
+        <div id="roomInfo" class="small">尚未加入房间</div>
+        <div class="seats" id="seatsWrap" style="margin-top: 8px;"></div>
+        <div class="row" style="margin-top: 8px;">
+          <button id="toggleReadyBtn">准备</button>
+          <button id="startBtn" class="primary">开始游戏</button>
+          <button id="hostTakeoverBtn">接管房主</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>游戏</h2>
+        <div id="gameInfo" class="small">等待开局</div>
+        <div class="row" id="bidWrap" style="margin-top: 8px; display: none;">
+          <span>叫分：</span>
+          <button data-bid="0">不叫</button>
+          <button data-bid="1">1分</button>
+          <button data-bid="2">2分</button>
+          <button data-bid="3">3分</button>
+        </div>
+        <div class="row" id="playActions" style="margin-top: 8px; display: none;">
+          <button id="passBtn">过牌</button>
+        </div>
+        <div style="margin-top: 8px;">
+          <div class="small">你的手牌</div>
+          <div id="handCards"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>事件日志</h2>
+        <ul id="eventLog" class="log small"></ul>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+    import {
+      getDatabase,
+      ref,
+      onValue,
+      runTransaction,
+      update,
+      set,
+      remove,
+      onDisconnect,
+      serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js";
+    import {
+      getAuth,
+      signInAnonymously,
+      onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+
+    // 替换成你的 Firebase 项目配置。
+    // 也可在 GitHub Pages 里注入 window.FIREBASE_CONFIG。
+    const firebaseConfig = window.FIREBASE_CONFIG || {
+      apiKey: "AIzaSyCW0x2G-J9uG0DgGdZ-_L3j3Y6tQC0cHNk",
+      authDomain: "doudizhu-aed08.firebaseapp.com",
+      projectId: "doudizhu-aed08",
+      storageBucket: "doudizhu-aed08.firebasestorage.app",
+      messagingSenderId: "947564732347",
+      appId: "1:947564732347:web:15d936438850cb6d4a6e9e"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const auth = getAuth(app);
+
+    const state = {
+      uid: "",
+      nick: localStorage.getItem("ddz_nick") || `玩家${Math.floor(Math.random() * 9000 + 1000)}`,
+      roomId: "",
+      room: null,
+      hand: {},
+      unsubs: [],
+      logs: []
+    };
+
+    const authStatus = document.getElementById("authStatus");
+    const nicknameInput = document.getElementById("nicknameInput");
+    const saveNickBtn = document.getElementById("saveNickBtn");
+    const createRoomBtn = document.getElementById("createRoomBtn");
+    const roomCodeInput = document.getElementById("roomCodeInput");
+    const joinRoomBtn = document.getElementById("joinRoomBtn");
+    const roomCodeLabel = document.getElementById("roomCodeLabel");
+    const copyLinkBtn = document.getElementById("copyLinkBtn");
+    const leaveRoomBtn = document.getElementById("leaveRoomBtn");
+    const lobbyMsg = document.getElementById("lobbyMsg");
+    const roomInfo = document.getElementById("roomInfo");
+    const seatsWrap = document.getElementById("seatsWrap");
+    const toggleReadyBtn = document.getElementById("toggleReadyBtn");
+    const startBtn = document.getElementById("startBtn");
+    const hostTakeoverBtn = document.getElementById("hostTakeoverBtn");
+    const gameInfo = document.getElementById("gameInfo");
+    const bidWrap = document.getElementById("bidWrap");
+    const playActions = document.getElementById("playActions");
+    const passBtn = document.getElementById("passBtn");
+    const handCards = document.getElementById("handCards");
+    const eventLog = document.getElementById("eventLog");
+
+    nicknameInput.value = state.nick;
+
+    function log(msg) {
+      const now = new Date().toLocaleTimeString();
+      state.logs.unshift(`[${now}] ${msg}`);
+      state.logs = state.logs.slice(0, 60);
+      eventLog.innerHTML = state.logs.map((x) => `<li>${escapeHtml(x)}</li>`).join("");
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function randRoomCode() {
+      const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+      let code = "";
+      for (let i = 0; i < 6; i += 1) code += chars[Math.floor(Math.random() * chars.length)];
+      return code;
+    }
+
+    function roomRef(id = state.roomId) {
+      return ref(db, `rooms/${id}`);
+    }
+
+    function myHandRef(id = state.roomId, uid = state.uid) {
+      return ref(db, `privateHands/${id}/${uid}`);
+    }
+
+    function getMySeat(room) {
+      if (!room || !room.seats || !state.uid) return null;
+      for (const [seat, uid] of Object.entries(room.seats)) {
+        if (uid === state.uid) return Number(seat);
+      }
+      return null;
+    }
+
+    function nextSeat(seats, cur) {
+      for (let i = 1; i <= 3; i += 1) {
+        const candidate = (cur + i) % 3;
+        if (seats[String(candidate)]) return candidate;
+      }
+      return cur;
+    }
+
+    function makeDeck() {
+      const suits = ["S", "H", "C", "D"];
+      const ranks = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"];
+      const rankPower = {
+        "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8,
+        "9": 9, "10": 10, J: 11, Q: 12, K: 13, A: 14, "2": 16
+      };
+      const deck = [];
+      for (const r of ranks) {
+        for (const s of suits) {
+          const id = `${r}${s}`;
+          deck.push({
+            id,
+            rank: r,
+            suit: s,
+            power: rankPower[r],
+            label: `${r}${s}`,
+            red: s === "H" || s === "D"
+          });
+        }
+      }
+      deck.push({ id: "SJ", rank: "SJ", suit: "", power: 18, label: "小王", red: false });
+      deck.push({ id: "BJ", rank: "BJ", suit: "", power: 20, label: "大王", red: true });
+      return deck;
+    }
+
+    function shuffle(arr) {
+      const a = [...arr];
+      const rnd = new Uint32Array(a.length);
+      crypto.getRandomValues(rnd);
+      for (let i = a.length - 1; i > 0; i -= 1) {
+        const j = rnd[i] % (i + 1);
+        const tmp = a[i];
+        a[i] = a[j];
+        a[j] = tmp;
+      }
+      return a;
+    }
+
+    function sortedHandCards(handMap) {
+      const cards = Object.values(handMap || {});
+      cards.sort((a, b) => {
+        if (a.power !== b.power) return a.power - b.power;
+        return a.label.localeCompare(b.label);
+      });
+      return cards;
+    }
+
+    async function runRoomTx(mutator, rid = state.roomId) {
+      if (!rid) return { committed: false };
+      return runTransaction(roomRef(rid), (room) => {
+        if (!room) return;
+        const res = mutator(room);
+        if (res === false) return;
+        if (res === null) return null;
+        return room;
+      }, { applyLocally: false });
+    }
+
+    async function createRoom() {
+      if (!state.uid || state.roomId) return;
+      for (let i = 0; i < 4; i += 1) {
+        const code = randRoomCode();
+        const result = await runTransaction(roomRef(code), (room) => {
+          if (room) return;
+          return {
+            createdAt: serverTimestamp(),
+            hostUid: state.uid,
+            maxMembers: 9,
+            status: "lobby",
+            members: {
+              [state.uid]: {
+                nick: state.nick,
+                joinedAt: Date.now()
+              }
+            },
+            seats: { 0: null, 1: null, 2: null },
+            ready: {},
+            publicCounts: {},
+            game: null
+          };
+        }, { applyLocally: false });
+
+        if (result.committed) {
+          await joinRoom(code, true);
+          return;
+        }
+      }
+      lobbyMsg.textContent = "创建失败，请重试";
+    }
+
+    async function joinRoom(roomId, alreadyMember = false) {
+      if (!state.uid || state.roomId) return;
+      const code = (roomId || "").trim().toUpperCase();
+      if (!code) return;
+
+      const result = await runRoomTx((room) => {
+        room.members = room.members || {};
+        const memberIds = Object.keys(room.members);
+        if (!alreadyMember && !room.members[state.uid] && memberIds.length >= 9) return false;
+        room.members[state.uid] = {
+          nick: state.nick,
+          joinedAt: room.members[state.uid]?.joinedAt || Date.now()
+        };
+      }, code);
+
+      if (!result.committed) {
+        lobbyMsg.textContent = "加入失败：房间不存在或已满（最多 9 人）";
+        return;
+      }
+
+      state.roomId = code;
+      roomCodeInput.value = code;
+      roomCodeLabel.textContent = code;
+      history.replaceState({}, "", `${location.pathname}?room=${encodeURIComponent(code)}`);
+      attachRoomListeners();
+      await setupDisconnectHooks();
+      lobbyMsg.textContent = "已加入房间";
+      log(`已进入房间 ${code}`);
+    }
+
+    async function setupDisconnectHooks() {
+      if (!state.roomId || !state.uid) return;
+      await onDisconnect(ref(db, `rooms/${state.roomId}/members/${state.uid}`)).remove();
+      await onDisconnect(ref(db, `rooms/${state.roomId}/ready/${state.uid}`)).remove();
+    }
+
+    async function leaveRoom() {
+      if (!state.roomId || !state.uid) return;
+      const rid = state.roomId;
+
+      await runRoomTx((room) => {
+        room.members = room.members || {};
+        if (!room.members[state.uid]) return false;
+
+        delete room.members[state.uid];
+        room.ready = room.ready || {};
+        room.publicCounts = room.publicCounts || {};
+        delete room.ready[state.uid];
+        delete room.publicCounts[state.uid];
+
+        room.seats = room.seats || {};
+        for (const s of ["0", "1", "2"]) {
+          if (room.seats[s] === state.uid) room.seats[s] = null;
+        }
+
+        const members = Object.keys(room.members || {});
+        if (members.length === 0) return null;
+
+        if (room.hostUid === state.uid) {
+          let nextHost = members[0];
+          for (const m of members) {
+            const j0 = room.members[nextHost]?.joinedAt || Number.MAX_SAFE_INTEGER;
+            const j1 = room.members[m]?.joinedAt || Number.MAX_SAFE_INTEGER;
+            if (j1 < j0) nextHost = m;
+          }
+          room.hostUid = nextHost;
+        }
+      }, rid);
+
+      await remove(myHandRef(rid, state.uid));
+
+      detachRoomListeners();
+      state.roomId = "";
+      state.room = null;
+      state.hand = {};
+      roomCodeLabel.textContent = "-";
+      history.replaceState({}, "", location.pathname);
+      lobbyMsg.textContent = "已离开房间";
+      render();
+    }
+
+    function detachRoomListeners() {
+      for (const f of state.unsubs) f();
+      state.unsubs = [];
+    }
+
+    function attachRoomListeners() {
+      detachRoomListeners();
+      if (!state.roomId) return;
+
+      const unsubRoom = onValue(roomRef(), async (snap) => {
+        const room = snap.val();
+        if (!room) {
+          detachRoomListeners();
+          state.roomId = "";
+          state.room = null;
+          state.hand = {};
+          roomCodeLabel.textContent = "-";
+          history.replaceState({}, "", location.pathname);
+          lobbyMsg.textContent = "房间不存在或已解散";
+          render();
+          return;
+        }
+
+        state.room = room;
+        cleanupGhostSeats();
+        autoFixHost();
+        hostGrantBottomIfNeeded();
+        render();
+      });
+
+      const unsubHand = onValue(myHandRef(), (snap) => {
+        state.hand = snap.val() || {};
+        render();
+      });
+
+      state.unsubs.push(unsubRoom, unsubHand);
+    }
+
+    async function cleanupGhostSeats() {
+      if (!state.room || !state.roomId) return;
+      const members = state.room.members || {};
+      const seats = state.room.seats || {};
+      const seatPatch = {};
+      const readyPatch = {};
+      const countPatch = {};
+      for (const s of ["0", "1", "2"]) {
+        const uid = seats[s];
+        if (uid && !members[uid]) {
+          seatPatch[s] = null;
+          readyPatch[uid] = null;
+          countPatch[uid] = null;
+        }
+      }
+      if (Object.keys(seatPatch).length) {
+        await Promise.all([
+          update(ref(db, `rooms/${state.roomId}/seats`), seatPatch),
+          update(ref(db, `rooms/${state.roomId}/ready`), readyPatch),
+          update(ref(db, `rooms/${state.roomId}/publicCounts`), countPatch)
+        ]);
+      }
+    }
+
+    async function autoFixHost() {
+      const room = state.room;
+      if (!room || !room.members) return;
+      if (room.members[room.hostUid]) return;
+      if (!room.members[state.uid]) return;
+      await takeHost();
+    }
+
+    async function seatAction(targetSeat) {
+      await runRoomTx((room) => {
+        if (room.status !== "lobby") return false;
+        if (!room.members?.[state.uid]) return false;
+        room.seats = room.seats || { 0: null, 1: null, 2: null };
+
+        for (const s of ["0", "1", "2"]) {
+          if (room.seats[s] === state.uid) room.seats[s] = null;
+        }
+
+        if (targetSeat !== null) {
+          const key = String(targetSeat);
+          if (room.seats[key]) return false;
+          room.seats[key] = state.uid;
+        }
+      });
+    }
+
+    async function toggleReady() {
+      await runRoomTx((room) => {
+        if (room.status !== "lobby") return false;
+        const mySeat = getMySeat(room);
+        if (mySeat === null) return false;
+        room.ready = room.ready || {};
+        room.ready[state.uid] = !room.ready[state.uid];
+      });
+    }
+
+    async function takeHost() {
+      await runRoomTx((room) => {
+        if (!room.members || !room.members[state.uid]) return false;
+        if (room.members[room.hostUid]) return false;
+        room.hostUid = state.uid;
+      });
+    }
+
+    async function startGame() {
+      const room = state.room;
+      if (!room || room.hostUid !== state.uid || room.status !== "lobby") return;
+
+      const seatUids = [room.seats?.["0"], room.seats?.["1"], room.seats?.["2"]];
+      if (seatUids.some((u) => !u)) return;
+
+      const deck = shuffle(makeDeck());
+      const bottom = deck.slice(51);
+      const hands = {
+        [seatUids[0]]: {},
+        [seatUids[1]]: {},
+        [seatUids[2]]: {}
+      };
+      for (let i = 0; i < 51; i += 1) {
+        const uid = seatUids[i % 3];
+        hands[uid][deck[i].id] = deck[i];
+      }
+
+      const tx = await runRoomTx((liveRoom) => {
+        if (liveRoom.hostUid !== state.uid || liveRoom.status !== "lobby") return false;
+        const users = [liveRoom.seats?.["0"], liveRoom.seats?.["1"], liveRoom.seats?.["2"]];
+        if (users.some((u) => !u)) return false;
+        if (users.some((uid) => !liveRoom.ready?.[uid])) return false;
+
+        liveRoom.publicCounts = {
+          [users[0]]: 17,
+          [users[1]]: 17,
+          [users[2]]: 17
+        };
+
+        const round = (liveRoom.game?.round || 0) + 1;
+        liveRoom.status = "bidding";
+        liveRoom.game = {
+          round,
+          bid: {
+            currentSeat: 0,
+            acted: 0,
+            bids: { 0: null, 1: null, 2: null },
+            highestBid: 0,
+            highestSeat: null
+          },
+          landlordSeat: null,
+          bottomCards: bottom,
+          bottomClaimed: false,
+          turnSeat: 0,
+          trickLeaderSeat: null,
+          passStreak: 0,
+          lastPlay: null,
+          winnerSeat: null,
+          updatedAt: Date.now()
+        };
+        liveRoom.ready = {};
+      });
+
+      if (!tx.committed) return;
+
+      try {
+        await Promise.all([
+          set(ref(db, `privateHands/${state.roomId}/${seatUids[0]}`), hands[seatUids[0]]),
+          set(ref(db, `privateHands/${state.roomId}/${seatUids[1]}`), hands[seatUids[1]]),
+          set(ref(db, `privateHands/${state.roomId}/${seatUids[2]}`), hands[seatUids[2]])
+        ]);
+        log("发牌完成，进入叫分阶段");
+      } catch (e) {
+        log("发牌写入失败，请重新开始一局");
+      }
+    }
+
+    async function bid(points) {
+      const bidVal = Number(points);
+      if (![0, 1, 2, 3].includes(bidVal)) return;
+      await runRoomTx((room) => {
+        if (room.status !== "bidding" || !room.game?.bid) return false;
+        const mySeat = getMySeat(room);
+        if (mySeat === null) return false;
+
+        const b = room.game.bid;
+        if (b.currentSeat !== mySeat) return false;
+        if (b.bids[String(mySeat)] !== null) return false;
+
+        b.bids[String(mySeat)] = bidVal;
+        b.acted += 1;
+        if (bidVal > b.highestBid) {
+          b.highestBid = bidVal;
+          b.highestSeat = mySeat;
+        }
+
+        const done = b.acted >= 3 || bidVal === 3;
+        if (!done) {
+          b.currentSeat = nextSeat(room.seats, mySeat);
+          room.game.updatedAt = Date.now();
+          return;
+        }
+
+        const landlordSeat = b.highestSeat === null ? 0 : b.highestSeat;
+        room.game.landlordSeat = landlordSeat;
+        room.status = "playing";
+        room.game.turnSeat = landlordSeat;
+        room.game.trickLeaderSeat = landlordSeat;
+        room.game.passStreak = 0;
+        room.game.lastPlay = null;
+        room.game.bottomClaimed = false;
+        room.game.updatedAt = Date.now();
+      });
+    }
+
+    async function hostGrantBottomIfNeeded() {
+      const room = state.room;
+      if (!room || !state.roomId) return;
+      if (room.hostUid !== state.uid) return;
+      if (room.status !== "playing" || !room.game) return;
+      if (room.game.bottomClaimed) return;
+
+      const landlordSeat = room.game.landlordSeat;
+      const landlordUid = room.seats?.[String(landlordSeat)];
+      const bottom = room.game.bottomCards || [];
+      if (!landlordUid || !bottom.length) return;
+
+      const tx = await runRoomTx((liveRoom) => {
+        if (liveRoom.hostUid !== state.uid) return false;
+        if (liveRoom.status !== "playing" || !liveRoom.game || liveRoom.game.bottomClaimed) return false;
+
+        const seat = liveRoom.game.landlordSeat;
+        const uid = liveRoom.seats?.[String(seat)];
+        if (!uid) return false;
+
+        liveRoom.publicCounts = liveRoom.publicCounts || {};
+        liveRoom.publicCounts[uid] = (liveRoom.publicCounts[uid] || 0) + (liveRoom.game.bottomCards || []).length;
+        liveRoom.game.bottomClaimed = true;
+        liveRoom.game.updatedAt = Date.now();
+      });
+
+      if (!tx.committed) return;
+
+      await runTransaction(ref(db, `privateHands/${state.roomId}/${landlordUid}`), (hand) => {
+        hand = hand || {};
+        for (const c of bottom) hand[c.id] = c;
+        return hand;
+      }, { applyLocally: false });
+    }
+
+    async function playCard(cardId) {
+      const card = state.hand?.[cardId];
+      if (!card) return;
+
+      const pull = await runTransaction(myHandRef(), (hand) => {
+        if (!hand || !hand[cardId]) return;
+        delete hand[cardId];
+        return hand;
+      }, { applyLocally: false });
+
+      if (!pull.committed) return;
+
+      const roomTx = await runRoomTx((room) => {
+        if (room.status !== "playing" || !room.game || !room.game.bottomClaimed) return false;
+        const mySeat = getMySeat(room);
+        if (mySeat === null || room.game.turnSeat !== mySeat) return false;
+
+        const lastPlay = room.game.lastPlay;
+        if (lastPlay && room.game.trickLeaderSeat !== mySeat && card.power <= lastPlay.power) return false;
+
+        room.publicCounts = room.publicCounts || {};
+        room.publicCounts[state.uid] = Math.max((room.publicCounts[state.uid] || 0) - 1, 0);
+
+        room.game.lastPlay = {
+          seat: mySeat,
+          uid: state.uid,
+          cardId: card.id,
+          label: card.label,
+          power: card.power
+        };
+        room.game.trickLeaderSeat = mySeat;
+        room.game.passStreak = 0;
+
+        if (room.publicCounts[state.uid] === 0) {
+          room.status = "finished";
+          room.game.winnerSeat = mySeat;
+          room.game.updatedAt = Date.now();
+          return;
+        }
+
+        room.game.turnSeat = nextSeat(room.seats, mySeat);
+        room.game.updatedAt = Date.now();
+      });
+
+      if (!roomTx.committed) {
+        await update(myHandRef(), { [cardId]: card });
+        log("出牌失败，已回滚手牌");
+      }
+    }
+
+    async function pass() {
+      await runRoomTx((room) => {
+        if (room.status !== "playing" || !room.game || !room.game.bottomClaimed) return false;
+        const mySeat = getMySeat(room);
+        if (mySeat === null || room.game.turnSeat !== mySeat) return false;
+        if (!room.game.lastPlay) return false;
+        if (room.game.trickLeaderSeat === mySeat) return false;
+
+        room.game.passStreak += 1;
+        if (room.game.passStreak >= 2) {
+          room.game.turnSeat = room.game.trickLeaderSeat;
+          room.game.lastPlay = null;
+          room.game.passStreak = 0;
+        } else {
+          room.game.turnSeat = nextSeat(room.seats, mySeat);
+        }
+        room.game.updatedAt = Date.now();
+      });
+    }
+
+    function nameOf(uid) {
+      const m = state.room?.members?.[uid];
+      return m?.nick || uid?.slice(0, 6) || "-";
+    }
+
+    function renderSeats() {
+      const room = state.room;
+      if (!room) {
+        seatsWrap.innerHTML = "";
+        return;
+      }
+
+      const mySeat = getMySeat(room);
+      seatsWrap.innerHTML = [0, 1, 2].map((seat) => {
+        const uid = room.seats?.[String(seat)] || null;
+        const isMine = uid && uid === state.uid;
+        const label = uid ? escapeHtml(nameOf(uid)) : "空位";
+        const ready = uid && room.ready?.[uid] ? "<span class='pill'>已准备</span>" : "";
+        const landlord = room.game?.landlordSeat === seat ? "<span class='pill'>地主</span>" : "";
+        const turn = room.game?.turnSeat === seat && room.status === "playing" ? "<span class='pill'>出牌中</span>" : "";
+        const count = uid ? `<div class='small'>剩余牌：${room.publicCounts?.[uid] ?? "-"}</div>` : "";
+        const btn = uid
+          ? (isMine ? `<button data-seat='stand'>离座</button>` : "")
+          : `<button data-seat='${seat}'>入座</button>`;
+
+        return `
+          <div class="seat ${mySeat === seat ? "you" : ""}">
+            <div><strong>${seat + 1} 号位</strong></div>
+            <div style="margin-top: 4px;">${label}</div>
+            <div style="margin-top: 6px;">${ready}${landlord}${turn}</div>
+            <div style="margin-top: 6px;">${count}</div>
+            <div style="margin-top: 8px;">${btn}</div>
+          </div>
+        `;
+      }).join("");
+
+      seatsWrap.querySelectorAll("button[data-seat]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const v = btn.dataset.seat;
+          if (v === "stand") {
+            await seatAction(null);
+            return;
+          }
+          await seatAction(Number(v));
+        });
+      });
+    }
+
+    function renderRoomInfo() {
+      if (!state.room) {
+        roomInfo.innerHTML = "尚未加入房间";
+        return;
+      }
+
+      const room = state.room;
+      const members = Object.entries(room.members || {}).sort((a, b) => (a[1].joinedAt || 0) - (b[1].joinedAt || 0));
+
+      roomInfo.innerHTML = `
+        <div>状态：<span class="pill">${escapeHtml(room.status || "-")}</span></div>
+        <div>房主：${escapeHtml(nameOf(room.hostUid))}</div>
+        <div>在线人数：${members.length}/9</div>
+        <div style="margin-top: 6px;">成员：${members.map(([uid, v]) => {
+          const host = uid === room.hostUid ? "(房主)" : "";
+          return `${escapeHtml(v.nick || uid.slice(0, 6))}${host}`;
+        }).join("、")}</div>
+      `;
+    }
+
+    function renderGame() {
+      const room = state.room;
+      if (!room || !room.game) {
+        gameInfo.textContent = "等待开局";
+        bidWrap.style.display = "none";
+        playActions.style.display = "none";
+        return;
+      }
+
+      const mySeat = getMySeat(room);
+      const game = room.game;
+
+      if (room.status === "bidding") {
+        const curUid = room.seats?.[String(game.bid.currentSeat)];
+        const bids = game.bid.bids || {};
+        gameInfo.innerHTML = `
+          <div>阶段：叫分</div>
+          <div>当前：${escapeHtml(nameOf(curUid))}</div>
+          <div>叫分记录：1号(${bids["0"] ?? "-"}) / 2号(${bids["1"] ?? "-"}) / 3号(${bids["2"] ?? "-"})</div>
+        `;
+        bidWrap.style.display = mySeat === game.bid.currentSeat ? "flex" : "none";
+        playActions.style.display = "none";
+      } else if (room.status === "playing") {
+        const last = game.lastPlay ? `${game.lastPlay.label}（${nameOf(game.lastPlay.uid)}）` : "无（新一轮）";
+        const landlordUid = room.seats?.[String(game.landlordSeat)];
+        const turnUid = room.seats?.[String(game.turnSeat)];
+        gameInfo.innerHTML = `
+          <div>阶段：出牌</div>
+          <div>地主：${escapeHtml(nameOf(landlordUid))}</div>
+          <div>当前：${escapeHtml(nameOf(turnUid))}</div>
+          <div>最近牌：${escapeHtml(last)}</div>
+          <div>底牌状态：${game.bottomClaimed ? "已发放" : "房主发放中"}</div>
+        `;
+        bidWrap.style.display = "none";
+        playActions.style.display = mySeat === game.turnSeat && game.bottomClaimed ? "flex" : "none";
+      } else if (room.status === "finished") {
+        const winnerUid = room.seats?.[String(game.winnerSeat)];
+        gameInfo.innerHTML = `
+          <div>阶段：已结束</div>
+          <div>胜者：${escapeHtml(nameOf(winnerUid))}</div>
+          <div class="small">房主可重新开始（3人入座并准备）</div>
+        `;
+        bidWrap.style.display = "none";
+        playActions.style.display = "none";
+      } else {
+        gameInfo.textContent = "等待开局";
+        bidWrap.style.display = "none";
+        playActions.style.display = "none";
+      }
+    }
+
+    function renderHand() {
+      const cards = sortedHandCards(state.hand);
+      if (!cards.length) {
+        handCards.innerHTML = '<span class="small muted">暂无手牌</span>';
+        return;
+      }
+
+      const canPlay = state.room?.status === "playing"
+        && state.room?.game?.bottomClaimed
+        && getMySeat(state.room) === state.room?.game?.turnSeat;
+
+      handCards.innerHTML = cards.map((c) => {
+        const red = c.red ? "red" : "";
+        const disabled = canPlay ? "" : "disabled";
+        return `<button class="card-btn ${red}" data-card="${escapeHtml(c.id)}" ${disabled}>${escapeHtml(c.label)}</button>`;
+      }).join("");
+
+      handCards.querySelectorAll("button[data-card]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          await playCard(btn.dataset.card);
+        });
+      });
+    }
+
+    function renderButtons() {
+      const room = state.room;
+      const mySeat = getMySeat(room);
+      const isReady = room?.ready?.[state.uid];
+      const isHost = room?.hostUid === state.uid;
+
+      toggleReadyBtn.disabled = !(room && room.status === "lobby" && mySeat !== null);
+      toggleReadyBtn.textContent = isReady ? "取消准备" : "准备";
+
+      const seatOk = room?.seats?.["0"] && room?.seats?.["1"] && room?.seats?.["2"];
+      const readyOk = seatOk && [room.seats["0"], room.seats["1"], room.seats["2"]].every((uid) => room.ready?.[uid]);
+      startBtn.disabled = !(room && isHost && room.status === "lobby" && readyOk);
+
+      hostTakeoverBtn.disabled = !(room && room.members && !room.members[room.hostUid] && room.members[state.uid]);
+      passBtn.disabled = !(room && room.status === "playing" && mySeat === room.game?.turnSeat && room.game?.lastPlay && room.game?.trickLeaderSeat !== mySeat);
+    }
+
+    function render() {
+      renderRoomInfo();
+      renderSeats();
+      renderGame();
+      renderHand();
+      renderButtons();
+    }
+
+    async function init() {
+      onAuthStateChanged(auth, async (user) => {
+        if (user) {
+          state.uid = user.uid;
+          authStatus.textContent = `匿名登录：${user.uid.slice(0, 8)}...`;
+          render();
+
+          const roomFromUrl = new URL(location.href).searchParams.get("room");
+          if (roomFromUrl && !state.roomId) {
+            await joinRoom(roomFromUrl);
+          }
+          return;
+        }
+        authStatus.textContent = "匿名登录中...";
+      });
+      await signInAnonymously(auth);
+    }
+
+    saveNickBtn.addEventListener("click", async () => {
+      const nextNick = nicknameInput.value.trim().slice(0, 12);
+      if (!nextNick) return;
+      state.nick = nextNick;
+      localStorage.setItem("ddz_nick", nextNick);
+      if (state.roomId && state.uid) {
+        await update(ref(db, `rooms/${state.roomId}/members/${state.uid}`), { nick: nextNick });
+      }
+      log(`昵称已更新为 ${nextNick}`);
+    });
+
+    createRoomBtn.addEventListener("click", async () => {
+      if (state.roomId) {
+        lobbyMsg.textContent = "请先离开当前房间";
+        return;
+      }
+      await createRoom();
+    });
+
+    joinRoomBtn.addEventListener("click", async () => {
+      if (state.roomId) {
+        lobbyMsg.textContent = "请先离开当前房间";
+        return;
+      }
+      await joinRoom(roomCodeInput.value);
+    });
+
+    leaveRoomBtn.addEventListener("click", async () => {
+      await leaveRoom();
+    });
+
+    copyLinkBtn.addEventListener("click", async () => {
+      if (!state.roomId) return;
+      const link = `${location.origin}${location.pathname}?room=${state.roomId}`;
+      await navigator.clipboard.writeText(link);
+      lobbyMsg.textContent = "邀请链接已复制";
+    });
+
+    toggleReadyBtn.addEventListener("click", async () => {
+      await toggleReady();
+    });
+
+    startBtn.addEventListener("click", async () => {
+      await startGame();
+    });
+
+    hostTakeoverBtn.addEventListener("click", async () => {
+      await takeHost();
+    });
+
+    bidWrap.querySelectorAll("button[data-bid]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        await bid(Number(btn.dataset.bid));
+      });
+    });
+
+    passBtn.addEventListener("click", async () => {
+      await pass();
+    });
+
+    window.addEventListener("beforeunload", () => {
+      if (!state.roomId || !state.uid) return;
+      remove(ref(db, `rooms/${state.roomId}/members/${state.uid}`));
+      remove(ref(db, `rooms/${state.roomId}/ready/${state.uid}`));
+    });
+
+    init();
+  </script>
+</body>
+</html>
