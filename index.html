@@ -177,6 +177,8 @@
       position: relative;
       display: block;
       min-height: 340px;
+      --center-top-px: 210px;
+      --center-bottom-px: 228px;
       border: 1px solid #3f5f95;
       border-radius: 14px;
       background: linear-gradient(180deg, #496ba2 0%, #3e5f95 100%);
@@ -293,9 +295,9 @@
       position: absolute;
       left: 16%;
       right: 16%;
-      top: 34%;
-      bottom: 228px;
-      z-index: 3;
+      top: var(--center-top-px, 210px);
+      bottom: var(--center-bottom-px, 228px);
+      z-index: 1;
       display: flex;
     }
     .table-center-dock > #playedPanel {
@@ -885,8 +887,6 @@
     body.landscape-ui.in-match.table-core-ui .table-center-dock {
       left: 14%;
       right: 14%;
-      top: 35%;
-      bottom: 236px;
     }
     body.landscape-ui.in-match.table-core-ui .table-last-play {
       display: none;
@@ -975,8 +975,6 @@
       body.landscape-ui.in-match .table-center-dock {
         left: 12%;
         right: 12%;
-        top: 36%;
-        bottom: 214px;
       }
       body.landscape-ui.in-match .table-center-dock > #playedPanel #playedNow {
         min-height: 0;
@@ -997,8 +995,6 @@
       body.landscape-ui.in-match.table-core-ui .table-center-dock {
         left: 11%;
         right: 11%;
-        top: 37%;
-        bottom: 206px;
       }
       .card-img {
         transition: transform .08s ease;
@@ -1235,7 +1231,8 @@
       playedScrollRoom: "",
       touchHandledUntil: 0,
       landscapeUi: readStoredBool(LAYOUT_LANDSCAPE_KEY, false),
-      tableCoreUi: readStoredBool(TABLE_CORE_UI_KEY, true)
+      tableCoreUi: readStoredBool(TABLE_CORE_UI_KEY, true),
+      coreDockLayoutRaf: 0
     };
 
     const authStatus = document.getElementById("authStatus");
@@ -4830,6 +4827,58 @@
       rulesInfo.textContent = modeRulesText(mode);
     }
 
+    function isUnifiedCoreActive(room = state.room) {
+      const status = room?.status || "";
+      const inMatch = status === "bidding" || status === "playing" || status === "finished";
+      return !!state.landscapeUi && !!state.tableCoreUi && inMatch;
+    }
+
+    function clearCoreTableDockLayoutVars() {
+      if (!seatsWrap) return;
+      seatsWrap.style.removeProperty("--center-top-px");
+      seatsWrap.style.removeProperty("--center-bottom-px");
+    }
+
+    function refreshCoreTableDockLayout() {
+      if (!isUnifiedCoreActive() || !seatsWrap?.classList.contains("table-view")) {
+        clearCoreTableDockLayoutVars();
+        return;
+      }
+      const centerDock = document.getElementById("tableCenterDock");
+      const bottomSeat = seatsWrap.querySelector('.seat[data-slot="bottom"]');
+      if (!centerDock || !bottomSeat) return;
+
+      const tableRect = seatsWrap.getBoundingClientRect();
+      if (!tableRect.width || !tableRect.height) return;
+      const topSeat = seatsWrap.querySelector('.seat[data-slot="top"]');
+      const topRect = topSeat ? topSeat.getBoundingClientRect() : null;
+      const bottomRect = bottomSeat.getBoundingClientRect();
+      const gap = 10;
+      let topPx = topRect
+        ? Math.round(topRect.bottom - tableRect.top + gap)
+        : Math.round(tableRect.height * 0.3);
+      let bottomPx = Math.round(tableRect.bottom - bottomRect.top + gap);
+      topPx = Math.max(56, topPx);
+      bottomPx = Math.max(104, bottomPx);
+
+      // Keep dock between top/bottom seats; if space is tight, shrink dock instead of crossing seats.
+      const minVisibleCenter = 24;
+      if (!topRect && topPx + bottomPx > tableRect.height - minVisibleCenter) {
+        topPx = Math.max(56, tableRect.height - bottomPx - minVisibleCenter);
+      }
+
+      seatsWrap.style.setProperty("--center-top-px", `${Math.round(topPx)}px`);
+      seatsWrap.style.setProperty("--center-bottom-px", `${Math.round(bottomPx)}px`);
+    }
+
+    function scheduleCoreTableDockLayout() {
+      if (state.coreDockLayoutRaf) return;
+      state.coreDockLayoutRaf = requestAnimationFrame(() => {
+        state.coreDockLayoutRaf = 0;
+        refreshCoreTableDockLayout();
+      });
+    }
+
     function syncUnifiedWindowPanels(useUnified) {
       if (!gridRoot || !unifiedWindowHost || !gamePanelEl || !playedPanelEl) return;
       if (useUnified) {
@@ -4843,8 +4892,10 @@
         } else if (gamePanelEl.parentElement !== centerDock) {
           centerDock.appendChild(gamePanelEl);
         }
+        scheduleCoreTableDockLayout();
         return;
       }
+      clearCoreTableDockLayoutVars();
 
       const anchor = rulesPanelEl && rulesPanelEl.parentElement === gridRoot ? rulesPanelEl : null;
       const bothInGrid = gamePanelEl.parentElement === gridRoot && playedPanelEl.parentElement === gridRoot;
@@ -4868,7 +4919,7 @@
     function applyLayoutModes() {
       const status = state.room?.status || "";
       const inMatch = status === "bidding" || status === "playing" || status === "finished";
-      const useUnified = !!state.landscapeUi && !!state.tableCoreUi && inMatch;
+      const useUnified = isUnifiedCoreActive();
       syncUnifiedWindowPanels(useUnified);
       document.body.classList.toggle("landscape-ui", !!state.landscapeUi);
       document.body.classList.toggle("table-core-ui", !!state.tableCoreUi);
@@ -4892,7 +4943,7 @@
       renderSeats();
       const status = state.room?.status || "";
       const inMatch = status === "bidding" || status === "playing" || status === "finished";
-      const useUnified = !!state.landscapeUi && !!state.tableCoreUi && inMatch;
+      const useUnified = isUnifiedCoreActive();
       syncUnifiedWindowPanels(useUnified);
       renderGame();
       renderHand();
@@ -4902,6 +4953,7 @@
       renderLobbyMessages();
       renderButtons();
       maybeShowVictoryCelebration();
+      if (useUnified) scheduleCoreTableDockLayout();
     }
 
     let authInitStarted = false;
@@ -5141,6 +5193,7 @@
     }, { passive: true });
     window.addEventListener("resize", () => {
       scheduleUpdateHandScrollBar();
+      scheduleCoreTableDockLayout();
     });
 
     lobbyMessageInput.addEventListener("keydown", async (evt) => {
@@ -5175,6 +5228,7 @@
       if (state.authUnsub) state.authUnsub();
       savePlayedWindowPos();
       if (state.playedScrollSaveTimer) clearTimeout(state.playedScrollSaveTimer);
+      if (state.coreDockLayoutRaf) cancelAnimationFrame(state.coreDockLayoutRaf);
       clearVictoryTimers();
     });
 
