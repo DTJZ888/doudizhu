@@ -4800,15 +4800,13 @@
       if (useUnified) {
         const centerDock = document.getElementById("tableCenterDock");
         const seatPlayDock = document.getElementById("seatPlayDock");
-        if (centerDock) {
-          if (playedPanelEl.parentElement !== centerDock) centerDock.appendChild(playedPanelEl);
-        } else if (playedPanelEl.parentElement !== unifiedWindowHost) {
-          unifiedWindowHost.appendChild(playedPanelEl);
-        }
+        // Wait until renderSeats creates target docks; never move to hidden fallback.
+        if (!centerDock) return;
+        if (playedPanelEl.parentElement !== centerDock) centerDock.appendChild(playedPanelEl);
         if (seatPlayDock) {
           if (gamePanelEl.parentElement !== seatPlayDock) seatPlayDock.appendChild(gamePanelEl);
-        } else if (gamePanelEl.parentElement !== unifiedWindowHost) {
-          unifiedWindowHost.appendChild(gamePanelEl);
+        } else if (gamePanelEl.parentElement !== centerDock) {
+          centerDock.appendChild(gamePanelEl);
         }
         return;
       }
@@ -4857,6 +4855,10 @@
       applyLayoutModes();
       renderRoomInfo();
       renderSeats();
+      const status = state.room?.status || "";
+      const inMatch = status === "bidding" || status === "playing" || status === "finished";
+      const useUnified = !!state.landscapeUi && !!state.tableCoreUi && inMatch;
+      syncUnifiedWindowPanels(useUnified);
       renderGame();
       renderHand();
       renderPlayedWindow();
