@@ -136,6 +136,11 @@
       opacity: .8;
       box-shadow: 0 4px 9px rgba(44, 33, 18, .14);
     }
+    .card-btn.selected .card-img {
+      transform: translateY(-8px);
+      box-shadow: 0 13px 20px rgba(42, 33, 19, .24);
+      outline: 2px solid #c49028;
+    }
     .red { color: #b61f1f; }
     .log {
       max-height: 180px;
@@ -182,31 +187,6 @@
       text-overflow: ellipsis;
       text-align: center;
     }
-    .played-history {
-      max-height: 195px;
-      overflow: auto;
-      display: grid;
-      gap: 6px;
-    }
-    .played-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 8px;
-      border: 1px solid #e0d4bc;
-      border-radius: 8px;
-      background: #fffaf0;
-    }
-    .played-item .played-card {
-      width: 44px;
-      height: 64px;
-      border-radius: 7px;
-      box-shadow: 0 3px 8px rgba(45, 34, 19, .18);
-    }
-    .played-text {
-      font-size: 12px;
-      color: #4b4238;
-    }
     .ok { color: #126842; }
     .err { color: #9e3316; }
     .hero-note {
@@ -228,7 +208,6 @@
       .panel { padding: 12px; }
       .card-img { width: 62px; height: 90px; }
       .played-card { width: 46px; height: 66px; }
-      .played-item .played-card { width: 38px; height: 55px; }
     }
   </style>
 </head>
@@ -248,6 +227,11 @@
         <label>昵称</label>
         <input id="nicknameInput" maxlength="12" placeholder="输入昵称" />
         <button id="saveNickBtn">保存昵称</button>
+        <label>模式</label>
+        <select id="gameModeSelect">
+          <option value="classic_simple">经典原型</option>
+          <option value="poker_a_4">4人扑克A</option>
+        </select>
       </div>
       <div class="row" style="margin-top: 8px;">
         <button id="createRoomBtn" class="primary">创建房间</button>
@@ -286,6 +270,7 @@
           <button data-bid="3">3分</button>
         </div>
         <div class="row" id="playActions" style="margin-top: 8px; display: none;">
+          <button id="playSelectedBtn" class="primary">出所选牌</button>
           <button id="passBtn">过牌</button>
         </div>
         <div style="margin-top: 8px;">
@@ -302,14 +287,8 @@
       <div class="panel">
         <h2>出牌窗口</h2>
         <div class="played-zone">
-          <div>
-            <div class="small">本轮已出牌</div>
-            <div id="playedNow" class="played-row"></div>
-          </div>
-          <div>
-            <div class="small">最近出牌历史</div>
-            <div id="playedHistory" class="played-history"></div>
-          </div>
+          <div class="small">上一个玩家出的牌</div>
+          <div id="playedNow" class="played-row"></div>
         </div>
       </div>
     </div>
@@ -328,6 +307,8 @@
     const TABLE_MIN_PLAYERS = 2;
     const TABLE_MAX_PLAYERS = 4;
     const TABLE_SEAT_COUNT = 4;
+    const MODE_CLASSIC = "classic_simple";
+    const MODE_POKER_A4 = "poker_a_4";
 
     const state = {
       uid: "",
@@ -335,6 +316,7 @@
       roomId: "",
       room: null,
       hand: {},
+      selectedCardIds: [],
       logs: [],
       roomUnsubs: [],
       authUnsub: null,
@@ -345,6 +327,7 @@
     const authStatus = document.getElementById("authStatus");
     const nicknameInput = document.getElementById("nicknameInput");
     const saveNickBtn = document.getElementById("saveNickBtn");
+    const gameModeSelect = document.getElementById("gameModeSelect");
     const createRoomBtn = document.getElementById("createRoomBtn");
     const roomCodeInput = document.getElementById("roomCodeInput");
     const joinRoomBtn = document.getElementById("joinRoomBtn");
@@ -360,13 +343,14 @@
     const gameInfo = document.getElementById("gameInfo");
     const bidWrap = document.getElementById("bidWrap");
     const playActions = document.getElementById("playActions");
+    const playSelectedBtn = document.getElementById("playSelectedBtn");
     const passBtn = document.getElementById("passBtn");
     const handCards = document.getElementById("handCards");
     const eventLog = document.getElementById("eventLog");
     const playedNow = document.getElementById("playedNow");
-    const playedHistory = document.getElementById("playedHistory");
 
     nicknameInput.value = state.nick;
+    gameModeSelect.value = MODE_CLASSIC;
 
     function log(msg) {
       const now = new Date().toLocaleTimeString();
@@ -444,13 +428,26 @@
       return 2;
     }
 
+    function modeLabel(mode) {
+      if (mode === MODE_POKER_A4) return "4人扑克A";
+      return "经典原型";
+    }
+
+    function roomMode(roomLike) {
+      return roomLike?.state?.gameMode || roomLike?.gameMode || MODE_CLASSIC;
+    }
+
     function ensureRoomStateShape(work) {
       work.state = work.state || {};
+      work.state.gameMode = work.state.gameMode || MODE_CLASSIC;
       work.state.members = work.state.members || {};
       work.state.seatCount = Math.max(
         TABLE_MIN_PLAYERS,
         Math.min(TABLE_SEAT_COUNT, Number(work.state.seatCount) || TABLE_SEAT_COUNT)
       );
+      if (work.state.gameMode === MODE_POKER_A4) {
+        work.state.seatCount = 4;
+      }
       work.state.seats = work.state.seats || {};
       for (const seat of buildSeatIndexes(work.state.seatCount)) {
         const key = String(seat);
@@ -469,6 +466,7 @@
         hostUid: row.host_uid,
         maxMembers: row.max_members || 9,
         status: row.status,
+        gameMode: s.gameMode || MODE_CLASSIC,
         seatCount: s.seatCount || TABLE_SEAT_COUNT,
         members: s.members || {},
         seats: s.seats || {},
@@ -562,6 +560,152 @@
       };
     }
 
+    const POKER_A_ORDER = ["4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2", "3", "SJ", "BJ"];
+    const POKER_A_STRAIGHT_ORDER = ["4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
+    const POKER_A_VALUE = Object.fromEntries(POKER_A_ORDER.map((r, i) => [r, i + 1]));
+    const POKER_A_STRAIGHT_VALUE = Object.fromEntries(POKER_A_STRAIGHT_ORDER.map((r, i) => [r, i + 1]));
+
+    function getCardValue(card, mode) {
+      if (mode === MODE_POKER_A4) return POKER_A_VALUE[card.rank] || 0;
+      return card.power || 0;
+    }
+
+    function sortedCardsByMode(cards, mode) {
+      return [...cards].sort((a, b) => {
+        const d = getCardValue(a, mode) - getCardValue(b, mode);
+        if (d) return d;
+        return a.id.localeCompare(b.id);
+      });
+    }
+
+    function isBombType(type) {
+      return type === "joker_bomb" || type === "quad_bomb" || type === "triple_bomb";
+    }
+
+    function bombLevel(type) {
+      if (type === "joker_bomb") return 3;
+      if (type === "quad_bomb") return 2;
+      if (type === "triple_bomb") return 1;
+      return 0;
+    }
+
+    function analyzePokerA(cards) {
+      if (!cards.length) return { ok: false, reason: "请选择要出的牌" };
+
+      const sorted = sortedCardsByMode(cards, MODE_POKER_A4);
+      const groups = {};
+      for (const c of sorted) {
+        groups[c.rank] = groups[c.rank] || [];
+        groups[c.rank].push(c);
+      }
+      const ranks = Object.keys(groups).sort((a, b) => (POKER_A_VALUE[a] || 0) - (POKER_A_VALUE[b] || 0));
+      const counts = ranks.map((r) => groups[r].length);
+      const len = sorted.length;
+
+      if (len === 1) {
+        return { ok: true, type: "single", length: 1, mainValue: POKER_A_VALUE[ranks[0]], rankKey: ranks[0], cards: sorted };
+      }
+
+      if (len === 2) {
+        if (groups.SJ && groups.BJ && ranks.length === 2) {
+          return { ok: true, type: "joker_bomb", length: 2, mainValue: 999, rankKey: "JOKER", cards: sorted };
+        }
+        if (ranks.length === 1 && counts[0] === 2) {
+          return { ok: true, type: "pair", length: 2, mainValue: POKER_A_VALUE[ranks[0]], rankKey: ranks[0], cards: sorted };
+        }
+      }
+
+      if (len === 3 && ranks.length === 1 && counts[0] === 3) {
+        return { ok: true, type: "triple_bomb", length: 3, mainValue: POKER_A_VALUE[ranks[0]], rankKey: ranks[0], cards: sorted };
+      }
+
+      if (len === 4 && ranks.length === 1 && counts[0] === 4) {
+        return { ok: true, type: "quad_bomb", length: 4, mainValue: POKER_A_VALUE[ranks[0]], rankKey: ranks[0], cards: sorted };
+      }
+
+      if (len >= 3 && ranks.length === len && counts.every((c) => c === 1)) {
+        const sv = ranks.map((r) => POKER_A_STRAIGHT_VALUE[r] || 0);
+        const validRange = sv.every((v) => v > 0);
+        const consecutive = validRange && sv.every((v, i) => i === 0 || v === sv[i - 1] + 1);
+        if (consecutive) {
+          return {
+            ok: true,
+            type: "straight",
+            length: len,
+            mainValue: sv[sv.length - 1],
+            rankKey: ranks[ranks.length - 1],
+            cards: sorted
+          };
+        }
+      }
+
+      if (len >= 6 && len % 2 === 0 && counts.every((c) => c === 2)) {
+        const sv = ranks.map((r) => POKER_A_STRAIGHT_VALUE[r] || 0);
+        const validRange = sv.every((v) => v > 0);
+        const consecutive = validRange && sv.every((v, i) => i === 0 || v === sv[i - 1] + 1);
+        if (consecutive) {
+          return {
+            ok: true,
+            type: "seq_pair",
+            length: len,
+            mainValue: sv[sv.length - 1],
+            rankKey: ranks[ranks.length - 1],
+            cards: sorted
+          };
+        }
+      }
+
+      return { ok: false, reason: "不符合4人扑克A允许的牌型" };
+    }
+
+    function analyzeClassic(cards) {
+      if (cards.length !== 1) return { ok: false, reason: "经典模式一次只能出一张牌" };
+      const card = cards[0];
+      return { ok: true, type: "single", length: 1, mainValue: card.power, rankKey: card.rank, cards: [card] };
+    }
+
+    function canBeatClassic(play, lastPlay, mySeat) {
+      if (!lastPlay) return true;
+      if (lastPlay.seat === mySeat) return true;
+      return play.mainValue > (lastPlay.power || 0);
+    }
+
+    function canBeatPokerA(play, lastPlay, mySeat) {
+      if (!lastPlay) return true;
+      if (lastPlay.seat === mySeat) return true;
+
+      const lastType = lastPlay.type || "single";
+      const playType = play.type;
+      const playBomb = isBombType(playType);
+      const lastBomb = isBombType(lastType);
+
+      if (playBomb && !lastBomb) return true;
+      if (!playBomb && lastBomb) return false;
+
+      if (playBomb && lastBomb) {
+        if (playType === lastType) {
+          if (playType === "joker_bomb") return false;
+          return play.mainValue > (lastPlay.mainValue || 0);
+        }
+        return bombLevel(playType) > bombLevel(lastType);
+      }
+
+      if (playType !== lastType) return false;
+      if ((playType === "straight" || playType === "seq_pair") && play.length !== lastPlay.length) return false;
+      return play.mainValue > (lastPlay.mainValue || 0);
+    }
+
+    function canCaptureInPokerA(play, lastPlay, activeSeats, mySeat) {
+      if (!lastPlay) return false;
+      if (lastPlay.seat === mySeat) return false;
+      if (!activeSeats.length) return false;
+      const expectedSeat = nextSeat(activeSeats, lastPlay.seat);
+      if (expectedSeat !== mySeat) return false;
+      if (lastPlay.type === "triple_bomb" && play.type === "pair" && play.rankKey === "4") return true;
+      if (lastPlay.type === "quad_bomb" && play.type === "triple_bomb" && play.rankKey === "4") return true;
+      return false;
+    }
+
     function makeDeck() {
       const suits = ["S", "H", "C", "D"];
       const ranks = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"];
@@ -603,11 +747,7 @@
 
     function sortedHandCards(handMap) {
       const cards = Object.values(handMap || {});
-      cards.sort((a, b) => {
-        if (a.power !== b.power) return a.power - b.power;
-        return a.label.localeCompare(b.label);
-      });
-      return cards;
+      return sortedCardsByMode(cards, roomMode(state.room));
     }
 
     async function fetchRoomOnce() {
@@ -629,6 +769,7 @@
         state.roomId = "";
         state.room = null;
         state.hand = {};
+        state.selectedCardIds = [];
         roomCodeLabel.textContent = "-";
         history.replaceState({}, "", location.pathname);
         render();
@@ -656,6 +797,7 @@
       }
 
       state.hand = data?.cards || {};
+      state.selectedCardIds = state.selectedCardIds.filter((id) => !!state.hand[id]);
     }
 
     async function refreshRoomAndHand() {
@@ -788,6 +930,8 @@
         showMsg("尚未登录，请稍后再试", true);
         return;
       }
+      const selectedMode = gameModeSelect.value === MODE_POKER_A4 ? MODE_POKER_A4 : MODE_CLASSIC;
+      const seatCount = selectedMode === MODE_POKER_A4 ? 4 : TABLE_SEAT_COUNT;
 
       try {
         for (let i = 0; i < 8; i += 1) {
@@ -805,7 +949,8 @@
                   joinedAt: Date.now()
                 }
               },
-              seatCount: TABLE_SEAT_COUNT,
+              gameMode: selectedMode,
+              seatCount,
               seats: { "0": null, "1": null, "2": null, "3": null },
               ready: {},
               publicCounts: {},
@@ -937,6 +1082,7 @@
       state.roomId = "";
       state.room = null;
       state.hand = {};
+      state.selectedCardIds = [];
       roomCodeLabel.textContent = "-";
       history.replaceState({}, "", location.pathname);
       showMsg("已离开房间");
@@ -1038,6 +1184,7 @@
       if (!state.roomId || !state.room) return;
       if (state.room.hostUid !== state.uid || state.room.status !== "lobby") return;
 
+      const mode = roomMode(state.room);
       let activeSeats = [];
       let seatUids = [];
       let hands = null;
@@ -1049,12 +1196,16 @@
         if (room.host_uid !== state.uid || room.status !== "lobby") return false;
 
         activeSeats = activeSeatsFrom(room.state.seats, room.state.seatCount);
-        if (activeSeats.length < TABLE_MIN_PLAYERS || activeSeats.length > TABLE_MAX_PLAYERS) return false;
+        if (mode === MODE_POKER_A4) {
+          if (activeSeats.length !== 4) return false;
+        } else if (activeSeats.length < TABLE_MIN_PLAYERS || activeSeats.length > TABLE_MAX_PLAYERS) {
+          return false;
+        }
 
         seatUids = activeSeats.map((seat) => room.state.seats[String(seat)]);
         if (seatUids.some((uid) => !room.state.ready[uid])) return false;
 
-        const bottomCount = getBottomCardCount(activeSeats.length);
+        const bottomCount = mode === MODE_POKER_A4 ? 2 : getBottomCardCount(activeSeats.length);
         const dealCount = deck.length - bottomCount;
         bottom = deck.slice(dealCount);
 
@@ -1071,26 +1222,25 @@
         const bidMap = Object.fromEntries(activeSeats.map((seat) => [String(seat), null]));
 
         const round = ((room.state.game && room.state.game.round) || 0) + 1;
-        room.status = "bidding";
+        room.status = mode === MODE_POKER_A4 ? "playing" : "bidding";
         room.state.game = {
+          mode,
           round,
           activeSeats,
-          bid: {
+          bid: mode === MODE_POKER_A4 ? null : {
             currentSeat: startSeat,
             acted: 0,
             bids: bidMap,
             highestBid: 0,
             highestSeat: null
           },
-          landlordSeat: null,
+          landlordSeat: mode === MODE_POKER_A4 ? null : null,
           bottomCards: bottom,
-          bottomClaimed: false,
+          bottomClaimed: mode === MODE_POKER_A4,
           turnSeat: startSeat,
-          trickLeaderSeat: null,
+          trickLeaderSeat: startSeat,
           passNeed: Math.max(activeSeats.length - 1, 1),
           passStreak: 0,
-          trickPlays: [],
-          history: [],
           lastPlay: null,
           winnerSeat: null,
           updatedAt: Date.now()
@@ -1104,7 +1254,11 @@
 
       try {
         await Promise.all(seatUids.map((uid) => writeHand(uid, hands[uid])));
-        log("发牌完成，进入叫分阶段");
+        if (mode === MODE_POKER_A4) {
+          log("发牌完成，进入4人扑克A出牌阶段");
+        } else {
+          log("发牌完成，进入叫分阶段");
+        }
       } catch (err) {
         showMsg(`发牌写入失败：${friendlyErr(err)}`, true);
       }
@@ -1118,6 +1272,7 @@
       await mutateRoom(state.roomId, (room) => {
         ensureRoomStateShape(room);
         if (room.status !== "bidding" || !room.state.game || !room.state.game.bid) return false;
+        if ((room.state.game.mode || room.state.gameMode) === MODE_POKER_A4) return false;
 
         const mySeat = getMySeat(mapRoomRow(room));
         if (mySeat === null) return false;
@@ -1161,6 +1316,7 @@
       if (!room || !state.roomId) return;
       if (room.hostUid !== state.uid) return;
       if (room.status !== "playing" || !room.game || room.game.bottomClaimed) return;
+      if (room.game.mode === MODE_POKER_A4) return;
 
       const landlordSeat = room.game.landlordSeat;
       const landlordUid = room.seats?.[String(landlordSeat)];
@@ -1195,13 +1351,24 @@
       await writeHand(landlordUid, merged);
     }
 
-    async function playCard(cardId) {
+    async function playSelected() {
       if (!state.roomId || !state.room) return;
-      const card = state.hand?.[cardId];
-      if (!card) return;
+      const selectedIds = [...new Set(state.selectedCardIds)].filter((id) => !!state.hand?.[id]);
+      if (!selectedIds.length) {
+        showMsg("请先选择要出的牌", true);
+        return;
+      }
+
+      const mode = roomMode(state.room);
+      const selectedCards = selectedIds.map((id) => state.hand[id]);
+      const analyzed = mode === MODE_POKER_A4 ? analyzePokerA(selectedCards) : analyzeClassic(selectedCards);
+      if (!analyzed.ok) {
+        showMsg(analyzed.reason || "牌型无效", true);
+        return;
+      }
 
       const nextHand = clone(state.hand);
-      delete nextHand[cardId];
+      for (const id of selectedIds) delete nextHand[id];
 
       try {
         await writeHand(state.uid, nextHand);
@@ -1210,35 +1377,51 @@
         return;
       }
 
+      let capturedCards = [];
       const roomTx = await mutateRoom(state.roomId, (room) => {
         ensureRoomStateShape(room);
         if (room.status !== "playing" || !room.state.game || !room.state.game.bottomClaimed) return false;
 
         const mySeat = getMySeat(mapRoomRow(room));
         if (mySeat === null || room.state.game.turnSeat !== mySeat) return false;
+        const liveMode = room.state.game.mode || room.state.gameMode || MODE_CLASSIC;
+        if (liveMode !== mode) return false;
 
+        const liveSeats = (room.state.game.activeSeats || activeSeatsFrom(room.state.seats, room.state.seatCount))
+          .filter((seat) => !!room.state.seats[String(seat)]);
         const lastPlay = room.state.game.lastPlay;
-        if (lastPlay && room.state.game.trickLeaderSeat !== mySeat && card.power <= lastPlay.power) return false;
 
-        room.state.publicCounts[state.uid] = Math.max((room.state.publicCounts[state.uid] || 0) - 1, 0);
+        if (liveMode === MODE_POKER_A4) {
+          const capture = canCaptureInPokerA(analyzed, lastPlay, liveSeats, mySeat);
+          if (!capture && !canBeatPokerA(analyzed, lastPlay, mySeat)) return false;
 
+          room.state.publicCounts[state.uid] = Math.max((room.state.publicCounts[state.uid] || 0) - analyzed.cards.length, 0);
+
+          if (capture) {
+            const rawCards = Array.isArray(lastPlay?.cards) ? lastPlay.cards : [lastPlay];
+            capturedCards = rawCards.map((x) => normalizeCard(x)).filter(Boolean);
+            room.state.publicCounts[state.uid] += capturedCards.length;
+          }
+        } else {
+          if (!canBeatClassic(analyzed, lastPlay, mySeat)) return false;
+          room.state.publicCounts[state.uid] = Math.max((room.state.publicCounts[state.uid] || 0) - 1, 0);
+        }
+
+        const labels = analyzed.cards.map((c) => c.label || cardPrettyName(c)).join(" ");
         const playRecord = {
           seat: mySeat,
           uid: state.uid,
-          cardId: card.id,
-          card,
-          label: card.label,
-          power: card.power,
+          type: analyzed.type,
+          length: analyzed.length,
+          mainValue: analyzed.mainValue,
+          rankKey: analyzed.rankKey,
+          cards: analyzed.cards,
+          label: labels,
+          power: analyzed.mainValue,
           at: Date.now()
         };
+
         room.state.game.lastPlay = playRecord;
-        room.state.game.trickPlays = room.state.game.trickPlays || [];
-        room.state.game.history = room.state.game.history || [];
-        room.state.game.trickPlays.push(playRecord);
-        room.state.game.history.push(playRecord);
-        if (room.state.game.history.length > 30) {
-          room.state.game.history = room.state.game.history.slice(-30);
-        }
         room.state.game.trickLeaderSeat = mySeat;
         room.state.game.passStreak = 0;
 
@@ -1249,17 +1432,25 @@
           return;
         }
 
-        const liveSeats = (room.state.game.activeSeats || []).filter((seat) => !!room.state.seats[String(seat)]);
         room.state.game.turnSeat = nextSeat(liveSeats, mySeat);
         room.state.game.updatedAt = Date.now();
       });
 
       if (!roomTx.committed) {
         const rollback = clone(nextHand);
-        rollback[cardId] = card;
+        for (const card of analyzed.cards) rollback[card.id] = card;
         await writeHand(state.uid, rollback);
         showMsg("出牌失败，已回滚手牌", true);
+        return;
       }
+
+      if (capturedCards.length) {
+        const merged = clone(nextHand);
+        for (const card of capturedCards) merged[card.id] = card;
+        await writeHand(state.uid, merged);
+      }
+
+      state.selectedCardIds = [];
     }
 
     async function pass() {
@@ -1280,13 +1471,13 @@
         if (room.state.game.passStreak >= passNeed) {
           room.state.game.turnSeat = room.state.game.trickLeaderSeat;
           room.state.game.lastPlay = null;
-          room.state.game.trickPlays = [];
           room.state.game.passStreak = 0;
         } else {
           room.state.game.turnSeat = nextSeat(liveSeats, mySeat);
         }
         room.state.game.updatedAt = Date.now();
       });
+      state.selectedCardIds = [];
     }
 
     function nameOf(uid) {
@@ -1341,6 +1532,8 @@
 
     function renderRoomInfo() {
       if (!state.room) {
+        gameModeSelect.disabled = false;
+        gameModeSelect.value = MODE_CLASSIC;
         roomInfo.innerHTML = "尚未加入房间";
         return;
       }
@@ -1348,11 +1541,16 @@
       const room = state.room;
       const members = Object.entries(room.members || {}).sort((a, b) => (a[1].joinedAt || 0) - (b[1].joinedAt || 0));
       const seated = activeSeatsFrom(room.seats, room.seatCount).length;
+      const mode = roomMode(room);
+      const startRange = mode === MODE_POKER_A4 ? "4" : `${TABLE_MIN_PLAYERS}-${TABLE_MAX_PLAYERS}`;
+      gameModeSelect.value = room.gameMode || MODE_CLASSIC;
+      gameModeSelect.disabled = true;
       roomInfo.innerHTML = `
         <div>状态：<span class="pill">${escapeHtml(room.status || "-")}</span></div>
         <div>房主：${escapeHtml(nameOf(room.hostUid))}</div>
+        <div>模式：${escapeHtml(modeLabel(room.gameMode))}</div>
         <div>在线人数：${members.length}/${room.maxMembers || 9}</div>
-        <div>入座人数：${seated}（可开局范围：${TABLE_MIN_PLAYERS}-${TABLE_MAX_PLAYERS}）</div>
+        <div>入座人数：${seated}（可开局范围：${startRange}）</div>
         <div>同步：${state.realtimeReady ? "实时通道" : "轮询"}</div>
         <div style="margin-top: 6px;">成员：${members.map(([uid, v]) => {
           const host = uid === room.hostUid ? "(房主)" : "";
@@ -1372,8 +1570,9 @@
 
       const mySeat = getMySeat(room);
       const game = room.game;
+      const mode = roomMode(room);
 
-      if (room.status === "bidding") {
+      if (room.status === "bidding" && mode !== MODE_POKER_A4) {
         const curUid = room.seats?.[String(game.bid.currentSeat)];
         const bids = game.bid.bids || {};
         const bidLabels = (game.activeSeats || []).map((seat) => `${seat + 1}号(${bids[String(seat)] ?? "-"})`).join(" / ");
@@ -1388,13 +1587,21 @@
         const last = game.lastPlay ? `${game.lastPlay.label}（${nameOf(game.lastPlay.uid)}）` : "无（新一轮）";
         const landlordUid = room.seats?.[String(game.landlordSeat)];
         const turnUid = room.seats?.[String(game.turnSeat)];
-        gameInfo.innerHTML = `
-          <div>阶段：出牌</div>
-          <div>地主：${escapeHtml(nameOf(landlordUid))}</div>
-          <div>当前：${escapeHtml(nameOf(turnUid))}</div>
-          <div>最近牌：${escapeHtml(last)}</div>
-          <div>底牌状态：${game.bottomClaimed ? "已发放" : "房主发放中"}</div>
-        `;
+        if (mode === MODE_POKER_A4) {
+          gameInfo.innerHTML = `
+            <div>阶段：4人扑克A出牌</div>
+            <div>当前：${escapeHtml(nameOf(turnUid))}</div>
+            <div>最近牌：${escapeHtml(last)}</div>
+          `;
+        } else {
+          gameInfo.innerHTML = `
+            <div>阶段：出牌</div>
+            <div>地主：${escapeHtml(nameOf(landlordUid))}</div>
+            <div>当前：${escapeHtml(nameOf(turnUid))}</div>
+            <div>最近牌：${escapeHtml(last)}</div>
+            <div>底牌状态：${game.bottomClaimed ? "已发放" : "房主发放中"}</div>
+          `;
+        }
         bidWrap.style.display = "none";
         playActions.style.display = mySeat === game.turnSeat && game.bottomClaimed ? "flex" : "none";
       } else if (room.status === "finished") {
@@ -1424,12 +1631,21 @@
         const id = escapeHtml(c.id);
         const title = escapeHtml(cardPrettyName(c));
         const src = cardImageUrl(c);
-        return `<button class="card-btn" data-card="${id}" title="${title}" ${canPlay ? "" : "disabled"}><img class="card-img" src="${src}" alt="${title}" /></button>`;
+        const selected = state.selectedCardIds.includes(c.id) ? "selected" : "";
+        return `<button class="card-btn ${selected}" data-card="${id}" title="${title}" ${canPlay ? "" : "disabled"}><img class="card-img" src="${src}" alt="${title}" /></button>`;
       }).join("");
 
       handCards.querySelectorAll("button[data-card]").forEach((btn) => {
         btn.addEventListener("click", async () => {
-          await playCard(btn.dataset.card);
+          if (!canPlay) return;
+          const id = btn.dataset.card;
+          if (state.selectedCardIds.includes(id)) {
+            state.selectedCardIds = state.selectedCardIds.filter((x) => x !== id);
+          } else {
+            state.selectedCardIds = [...state.selectedCardIds, id];
+          }
+          renderHand();
+          renderButtons();
         });
       });
     }
@@ -1439,15 +1655,19 @@
       const mySeat = getMySeat(room);
       const isReady = room?.ready?.[state.uid];
       const isHost = room?.hostUid === state.uid;
+      const mode = roomMode(room);
 
       toggleReadyBtn.disabled = !(room && room.status === "lobby" && mySeat !== null);
       toggleReadyBtn.textContent = isReady ? "取消准备" : "准备";
 
       const activeSeats = room ? activeSeatsFrom(room.seats, room.seatCount) : [];
-      const seatOk = activeSeats.length >= TABLE_MIN_PLAYERS && activeSeats.length <= TABLE_MAX_PLAYERS;
+      const seatOk = mode === MODE_POKER_A4
+        ? activeSeats.length === 4
+        : (activeSeats.length >= TABLE_MIN_PLAYERS && activeSeats.length <= TABLE_MAX_PLAYERS);
       const readyOk = seatOk && activeSeats.every((seat) => room.ready?.[room.seats[String(seat)]]);
       startBtn.disabled = !(room && isHost && room.status === "lobby" && readyOk);
       hostTakeoverBtn.disabled = !(room && room.members && !room.members[room.hostUid] && room.members[state.uid]);
+      playSelectedBtn.disabled = !(room && room.status === "playing" && mySeat === room.game?.turnSeat && room.game?.bottomClaimed && state.selectedCardIds.length > 0);
       passBtn.disabled = !(room && room.status === "playing" && mySeat === room.game?.turnSeat && room.game?.lastPlay && room.game?.trickLeaderSeat !== mySeat);
     }
 
@@ -1455,48 +1675,32 @@
       const room = state.room;
       if (!room || !room.game) {
         playedNow.innerHTML = '<span class="small muted">等待对局开始</span>';
-        playedHistory.innerHTML = '<div class="small muted">暂无历史</div>';
         return;
       }
 
-      const trick = room.game.trickPlays || [];
-      const history = room.game.history || [];
-
-      if (!trick.length) {
-        playedNow.innerHTML = '<span class="small muted">本轮暂无出牌</span>';
-      } else {
-        playedNow.innerHTML = trick.map((p) => {
-          const card = normalizeCard(p);
-          if (!card) return "";
-          const src = cardImageUrl(card);
-          const who = escapeHtml(nameOf(p.uid));
-          const alt = escapeHtml(cardPrettyName(card));
-          return `
-            <div class="played-chip">
-              <img class="played-card" src="${src}" alt="${alt}" />
-              <div class="played-cap">${who}</div>
-            </div>
-          `;
-        }).join("");
+      const last = room.game.lastPlay;
+      if (!last) {
+        playedNow.innerHTML = '<span class="small muted">上一手为空（新一轮开始）</span>';
+        return;
       }
 
-      if (!history.length) {
-        playedHistory.innerHTML = '<div class="small muted">暂无历史</div>';
-      } else {
-        playedHistory.innerHTML = [...history].reverse().slice(0, 16).map((p) => {
-          const card = normalizeCard(p);
-          if (!card) return "";
-          const src = cardImageUrl(card);
-          const who = escapeHtml(nameOf(p.uid));
-          const label = escapeHtml(cardPrettyName(card));
-          return `
-            <div class="played-item">
-              <img class="played-card" src="${src}" alt="${label}" />
-              <div class="played-text">${who} 出了 ${label}</div>
-            </div>
-          `;
-        }).join("");
+      const cards = (Array.isArray(last.cards) ? last.cards : [last]).map((x) => normalizeCard(x)).filter(Boolean);
+      if (!cards.length) {
+        playedNow.innerHTML = '<span class="small muted">上一手数据不可用</span>';
+        return;
       }
+
+      const who = escapeHtml(nameOf(last.uid));
+      playedNow.innerHTML = cards.map((card) => {
+        const src = cardImageUrl(card);
+        const alt = escapeHtml(cardPrettyName(card));
+        return `
+          <div class="played-chip">
+            <img class="played-card" src="${src}" alt="${alt}" />
+            <div class="played-cap">${who}</div>
+          </div>
+        `;
+      }).join("");
     }
 
     function render() {
@@ -1604,6 +1808,10 @@
       btn.addEventListener("click", async () => {
         await bid(Number(btn.dataset.bid));
       });
+    });
+
+    playSelectedBtn.addEventListener("click", async () => {
+      await playSelected();
     });
 
     passBtn.addEventListener("click", async () => {
