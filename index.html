@@ -191,12 +191,13 @@
       border: 1px solid rgba(228, 218, 191, .7);
       background: rgba(253, 249, 240, .94);
       box-shadow: 0 6px 14px rgba(24, 28, 40, .22);
+      z-index: 2;
     }
     .seats.table-view .seat[data-slot="top"] {
       top: 8px;
       left: 50%;
       transform: translateX(-50%);
-      width: min(72%, 520px);
+      width: min(54%, 520px);
     }
     .seats.table-view .seat[data-slot="left"] {
       left: 8px;
@@ -214,28 +215,78 @@
       left: 50%;
       bottom: 8px;
       transform: translateX(-50%);
-      width: min(86%, 640px);
+      width: min(92%, 920px);
     }
-    .table-center-hud {
+    .table-info-hud {
       position: absolute;
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%);
-      width: min(78%, 460px);
-      padding: 8px 10px;
+      left: 10px;
+      top: 10px;
+      width: min(40%, 420px);
+      padding: 7px 9px;
       border-radius: 10px;
       border: 1px solid rgba(232, 220, 190, .5);
       background: rgba(238, 231, 213, .28);
       backdrop-filter: blur(2px);
-      text-align: center;
+      text-align: left;
       color: #f8f4e9;
       text-shadow: 0 1px 2px rgba(25, 34, 56, .7);
       font-size: 12px;
+      z-index: 3;
     }
-    .table-center-hud .line {
+    .table-info-hud .line {
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+    .table-last-play {
+      position: absolute;
+      left: 50%;
+      top: 56%;
+      transform: translate(-50%, -50%);
+      min-width: 200px;
+      max-width: 70%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(224, 206, 172, .85);
+      background: rgba(255, 249, 237, .92);
+      box-shadow: 0 6px 16px rgba(52, 42, 26, .18);
+      z-index: 4;
+    }
+    .table-last-play-cards {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      overflow-x: auto;
+      max-width: 100%;
+    }
+    .table-last-play .played-card {
+      width: 40px;
+      height: 58px;
+      border-radius: 7px;
+    }
+    .seat-hand-mini {
+      margin-top: 6px;
+      display: flex;
+      align-items: flex-end;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+    .seat-hand-mini-card {
+      width: 26px;
+      height: 38px;
+      border-radius: 5px;
+      border: 1px solid rgba(223, 206, 171, .9);
+      box-shadow: 0 2px 5px rgba(38, 30, 18, .22);
+      margin-left: -10px;
+      background: #fff;
+      flex: 0 0 auto;
+    }
+    .seat-hand-mini-card:first-child {
+      margin-left: 0;
     }
     .hidden-hand {
       margin-top: 6px;
@@ -891,18 +942,32 @@
         padding: 6px;
       }
       body.landscape-ui.in-match .seats.table-view .seat[data-slot="top"] {
-        width: min(80%, 460px);
+        width: min(56%, 460px);
       }
       body.landscape-ui.in-match .seats.table-view .seat[data-slot="left"],
       body.landscape-ui.in-match .seats.table-view .seat[data-slot="right"] {
         width: min(34%, 220px);
       }
       body.landscape-ui.in-match .seats.table-view .seat[data-slot="bottom"] {
-        width: min(92%, 620px);
+        width: min(94%, 700px);
       }
-      body.landscape-ui.in-match .table-center-hud {
-        width: min(86%, 400px);
+      body.landscape-ui.in-match .table-info-hud {
+        width: min(52%, 360px);
         padding: 6px 8px;
+      }
+      body.landscape-ui.in-match .table-last-play {
+        max-width: 78%;
+        top: 58%;
+        padding: 5px 8px;
+      }
+      body.landscape-ui.in-match .table-last-play .played-card {
+        width: 34px;
+        height: 50px;
+      }
+      body.landscape-ui.in-match .seat-hand-mini-card {
+        width: 22px;
+        height: 32px;
+        margin-left: -8px;
       }
       body.landscape-ui.in-match.table-core-ui .grid {
         min-height: auto;
@@ -3888,15 +3953,40 @@
       const centerTurnSeat = Number.isInteger(room.game?.turnSeat) ? room.game.turnSeat : null;
       const centerTurnUid = centerTurnSeat === null ? null : room.seats?.[String(centerTurnSeat)];
       const centerTurnName = centerTurnUid ? nameOf(centerTurnUid) : "-";
-      const centerLast = room.game?.lastPlay?.label || "暂无";
-      const centerHtml = tableView ? `
-        <div class="table-center-hud">
-          <div class="line">阶段：${escapeHtml(room.status || "-")} / 轮到：${escapeHtml(centerTurnName)}</div>
-          <div class="line">上手：${escapeHtml(centerLast)}</div>
+      const centerLast = room.game?.lastPlay?.label || "无";
+      const phaseLabel = room.status === "playing"
+        ? "出牌"
+        : (room.status === "bidding" ? "叫分" : (room.status === "finished" ? "结束" : "大厅"));
+      const lastPlayCards = (Array.isArray(room.game?.lastPlay?.cards)
+        ? room.game.lastPlay.cards
+        : (room.game?.lastPlay ? [room.game.lastPlay] : []))
+        .map((x) => normalizeCard(x))
+        .filter(Boolean);
+      const lastPlayWho = room.game?.lastPlay?.uid ? nameOf(room.game.lastPlay.uid) : "-";
+      const tableInfoHtml = tableView ? `
+        <div class="table-info-hud">
+          <div class="line">阶段：${escapeHtml(phaseLabel)}</div>
+          <div class="line">轮到：${escapeHtml(centerTurnName)}</div>
+          <div class="line">最近牌：${escapeHtml(centerLast)}</div>
+        </div>
+      ` : "";
+      const tableLastHtml = tableView ? `
+        <div class="table-last-play">
+          <span class="small">${escapeHtml(lastPlayWho)}：</span>
+          <div class="table-last-play-cards">
+            ${lastPlayCards.length
+              ? lastPlayCards.map((card) => {
+                const src = cardImageUrl(card);
+                const alt = escapeHtml(cardPrettyName(card));
+                return `<img class="played-card" src="${src}" alt="${alt}" />`;
+              }).join("")
+              : `<span class="small muted">暂无出牌</span>`
+            }
+          </div>
         </div>
       ` : "";
 
-      seatsWrap.innerHTML = `${centerHtml}${seatIndexes.map((seat) => {
+      seatsWrap.innerHTML = `${tableInfoHtml}${tableLastHtml}${seatIndexes.map((seat) => {
         const uid = room.seats?.[String(seat)] || null;
         const isMine = uid && uid === state.uid;
         const aiTag = uid && room.members?.[uid]?.isAi ? " <span class='pill'>AI</span>" : "";
@@ -3909,6 +3999,16 @@
           ? (concealed
             ? `<div class='seat-meta'>剩余牌：已隐藏</div>${hiddenHandHtml(remaining)}`
             : `<div class='seat-meta'>剩余牌：${remaining}</div>`)
+          : "";
+        const mineHandPreview = (tableView && inMatch && isMine)
+          ? `<div class='seat-meta'>当前手牌</div>
+             <div class='seat-hand-mini'>${
+               sortedHandCards(state.hand || {}).map((card) => {
+                 const src = cardImageUrl(card);
+                 const alt = escapeHtml(cardPrettyName(card));
+                 return `<img class="seat-hand-mini-card" src="${src}" alt="${alt}" />`;
+               }).join("")
+             }</div>`
           : "";
         const btn = !allowSeatActions
           ? ""
@@ -3928,6 +4028,7 @@
             <div class="seat-head"><strong>${seat + 1} 号位</strong><span>${landlord}${turn}</span></div>
             <div class="seat-meta">${label}</div>
             <div>${count}</div>
+            ${mineHandPreview}
             ${actions}
           </div>
         `;
