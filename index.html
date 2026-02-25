@@ -146,6 +146,120 @@
       border-color: #1a7a4c;
       background: linear-gradient(180deg, #eefbf3 0%, #e4f3ea 100%);
     }
+    .seat-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .seat-meta {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #5a4f40;
+    }
+    .seat-actions {
+      margin-top: 8px;
+    }
+    .seats.table-view {
+      position: relative;
+      display: block;
+      min-height: 340px;
+      border: 1px solid #3f5f95;
+      border-radius: 14px;
+      background: linear-gradient(180deg, #496ba2 0%, #3e5f95 100%);
+      overflow: hidden;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12);
+    }
+    .seats.table-view .seat {
+      position: absolute;
+      min-height: 0;
+      width: 170px;
+      padding: 8px;
+      border: 1px solid rgba(228, 218, 191, .7);
+      background: rgba(253, 249, 240, .94);
+      box-shadow: 0 6px 14px rgba(24, 28, 40, .22);
+    }
+    .seats.table-view .seat[data-slot="top"] {
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(72%, 520px);
+    }
+    .seats.table-view .seat[data-slot="left"] {
+      left: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: min(36%, 260px);
+    }
+    .seats.table-view .seat[data-slot="right"] {
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: min(36%, 260px);
+    }
+    .seats.table-view .seat[data-slot="bottom"] {
+      left: 50%;
+      bottom: 8px;
+      transform: translateX(-50%);
+      width: min(86%, 640px);
+    }
+    .table-center-hud {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: min(78%, 460px);
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(232, 220, 190, .5);
+      background: rgba(238, 231, 213, .28);
+      backdrop-filter: blur(2px);
+      text-align: center;
+      color: #f8f4e9;
+      text-shadow: 0 1px 2px rgba(25, 34, 56, .7);
+      font-size: 12px;
+    }
+    .table-center-hud .line {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .hidden-hand {
+      margin-top: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .hidden-hand-stack {
+      position: relative;
+      width: 52px;
+      height: 34px;
+      flex: 0 0 auto;
+    }
+    .hidden-hand-card {
+      position: absolute;
+      top: 0;
+      left: calc(var(--idx) * 7px);
+      width: 24px;
+      height: 34px;
+      border-radius: 5px;
+      border: 1px solid #d9d6c8;
+      background:
+        linear-gradient(135deg, #f7f6ef 0 25%, #cdc8b6 25% 50%, #f7f6ef 50% 75%, #cdc8b6 75% 100%);
+      background-size: 12px 12px;
+      box-shadow: 0 2px 6px rgba(35, 33, 25, .22);
+    }
+    .hidden-hand-count {
+      display: inline-block;
+      min-width: 42px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid #dbcba8;
+      background: #fff7e7;
+      font-size: 12px;
+      color: #5a4c37;
+      text-align: center;
+    }
     .pill {
       display: inline-block;
       border: 1px solid #cdbf9f;
@@ -591,25 +705,39 @@
       body.landscape-ui.in-match #lobbyPanel {
         display: none;
       }
+      body.landscape-ui.in-match #headerPanel {
+        display: none;
+      }
       body.landscape-ui.in-match .grid {
         grid-template-columns: 1fr;
         grid-template-areas:
-          "played"
-          "game"
           "room"
-          "rules";
+          "played"
+          "game";
         gap: 8px;
       }
+      body.landscape-ui.in-match #rulesPanel {
+        display: none;
+      }
+      body.landscape-ui.in-match #roomSeatPanel {
+        min-height: 30dvh;
+        padding: 8px;
+      }
+      body.landscape-ui.in-match #roomSeatPanel h2,
+      body.landscape-ui.in-match #roomInfo,
+      body.landscape-ui.in-match #roomActions {
+        display: none;
+      }
       body.landscape-ui.in-match #playedPanel {
-        min-height: 27dvh;
-        max-height: 34dvh;
+        min-height: 22dvh;
+        max-height: 28dvh;
       }
       body.landscape-ui.in-match #playedNow {
-        min-height: 18dvh;
-        max-height: 24dvh;
+        min-height: 14dvh;
+        max-height: 19dvh;
       }
       body.landscape-ui.in-match #gamePanel {
-        min-height: 52dvh;
+        min-height: 40dvh;
         display: flex;
         flex-direction: column;
       }
@@ -618,6 +746,26 @@
       }
       body.landscape-ui.in-match #handCards {
         min-height: 88px;
+      }
+      body.landscape-ui.in-match .seats.table-view {
+        min-height: 250px;
+      }
+      body.landscape-ui.in-match .seats.table-view .seat {
+        padding: 6px;
+      }
+      body.landscape-ui.in-match .seats.table-view .seat[data-slot="top"] {
+        width: min(80%, 460px);
+      }
+      body.landscape-ui.in-match .seats.table-view .seat[data-slot="left"],
+      body.landscape-ui.in-match .seats.table-view .seat[data-slot="right"] {
+        width: min(34%, 220px);
+      }
+      body.landscape-ui.in-match .seats.table-view .seat[data-slot="bottom"] {
+        width: min(92%, 620px);
+      }
+      body.landscape-ui.in-match .table-center-hud {
+        width: min(86%, 400px);
+        padding: 6px 8px;
       }
       .card-img {
         transition: transform .08s ease;
@@ -702,7 +850,7 @@
         <h2>房间与座位</h2>
         <div id="roomInfo" class="small">尚未加入房间</div>
         <div class="seats" id="seatsWrap" style="margin-top: 8px;"></div>
-        <div class="row" style="margin-top: 8px;">
+        <div class="row" id="roomActions" style="margin-top: 8px;">
           <button id="startBtn" class="primary">开始游戏</button>
           <button id="undoBtn">悔牌</button>
           <button id="restartBtn" class="warn">重开</button>
@@ -3517,40 +3665,101 @@
       return m?.nick || uid?.slice(0, 6) || "-";
     }
 
+    function seatSlotByRelative(relative, seatCount = TABLE_SEAT_COUNT) {
+      if (!Number.isInteger(relative)) return "bottom";
+      if (relative === 0) return "bottom";
+      if (seatCount <= 1) return "bottom";
+      if (seatCount === 2) return relative === 1 ? "top" : "bottom";
+      if (seatCount === 3) {
+        if (relative === 1) return "right";
+        if (relative === 2) return "top";
+        return "bottom";
+      }
+      if (relative === 1) return "right";
+      if (relative === 2) return "top";
+      if (relative === 3) return "left";
+      return "bottom";
+    }
+
+    function hiddenHandHtml(count) {
+      const parsed = Number(count);
+      const hasNum = Number.isFinite(parsed);
+      const n = hasNum ? Math.max(0, parsed) : 0;
+      const stack = Math.max(1, Math.min(4, n || 1));
+      const badge = hasNum ? `x${n}` : "x-";
+      return `
+        <div class="hidden-hand">
+          <div class="hidden-hand-stack" aria-hidden="true">
+            ${Array.from({ length: stack }).map((_, idx) => `<span class="hidden-hand-card" style="--idx:${idx};"></span>`).join("")}
+          </div>
+          <span class="hidden-hand-count">${badge}</span>
+        </div>
+      `;
+    }
+
     function renderSeats() {
       const room = state.room;
       if (!room) {
+        seatsWrap.classList.remove("table-view");
         seatsWrap.innerHTML = "";
         return;
       }
 
       const mySeat = getMySeat(room);
+      const seatCount = Math.max(TABLE_SEAT_MIN, Math.min(TABLE_SEAT_COUNT, Number(room.seatCount) || TABLE_SEAT_COUNT));
       const seatIndexes = buildSeatIndexes(room.seatCount);
-      seatsWrap.innerHTML = seatIndexes.map((seat) => {
+      const inMatch = room.status === "bidding" || room.status === "playing" || room.status === "finished";
+      const tableView = !!state.landscapeUi && inMatch;
+      seatsWrap.classList.toggle("table-view", tableView);
+      const allowSeatActions = room.status === "lobby" || !tableView;
+
+      const centerTurnSeat = Number.isInteger(room.game?.turnSeat) ? room.game.turnSeat : null;
+      const centerTurnUid = centerTurnSeat === null ? null : room.seats?.[String(centerTurnSeat)];
+      const centerTurnName = centerTurnUid ? nameOf(centerTurnUid) : "-";
+      const centerLast = room.game?.lastPlay?.label || "暂无";
+      const centerHtml = tableView ? `
+        <div class="table-center-hud">
+          <div class="line">阶段：${escapeHtml(room.status || "-")} / 轮到：${escapeHtml(centerTurnName)}</div>
+          <div class="line">上手：${escapeHtml(centerLast)}</div>
+        </div>
+      ` : "";
+
+      seatsWrap.innerHTML = `${centerHtml}${seatIndexes.map((seat) => {
         const uid = room.seats?.[String(seat)] || null;
         const isMine = uid && uid === state.uid;
         const aiTag = uid && room.members?.[uid]?.isAi ? " <span class='pill'>AI</span>" : "";
         const label = uid ? `${escapeHtml(nameOf(uid))}${aiTag}` : "空位";
         const landlord = room.game?.landlordSeat === seat ? "<span class='pill'>地主</span>" : "";
         const turn = room.game?.turnSeat === seat && room.status === "playing" ? "<span class='pill'>出牌中</span>" : "";
-        const count = uid ? `<div class='small'>剩余牌：${room.publicCounts?.[uid] ?? "-"}</div>` : "";
-        const btn = uid
-          ? (isMine
-            ? `<button data-seat='stand'>离座</button>`
-            : (room.members?.[uid]?.isAi ? `<button data-seat='${seat}'>接管AI座位</button>` : ""))
-          : `<button data-seat='${seat}'>入座</button>`;
+        const remaining = uid ? (room.publicCounts?.[uid] ?? "-") : "-";
+        const concealed = tableView && inMatch && uid && !isMine;
+        const count = uid
+          ? (concealed
+            ? `<div class='seat-meta'>剩余牌：已隐藏</div>${hiddenHandHtml(remaining)}`
+            : `<div class='seat-meta'>剩余牌：${remaining}</div>`)
+          : "";
+        const btn = !allowSeatActions
+          ? ""
+          : (uid
+            ? (isMine
+              ? `<button data-seat='stand'>离座</button>`
+              : (room.members?.[uid]?.isAi ? `<button data-seat='${seat}'>接管AI座位</button>` : ""))
+            : `<button data-seat='${seat}'>入座</button>`);
         const turnClass = room.game?.turnSeat === seat && room.status === "playing" ? "turning" : "";
+        const relative = mySeat === null ? seat : ((seat - mySeat + seatCount) % seatCount);
+        const slot = tableView ? seatSlotByRelative(relative, seatCount) : "";
+        const slotAttr = tableView ? ` data-slot="${slot}"` : "";
+        const actions = btn ? `<div class="seat-actions">${btn}</div>` : "";
 
         return `
-          <div class="seat ${mySeat === seat ? "you" : ""} ${turnClass}">
-            <div><strong>${seat + 1} 号位</strong></div>
-            <div style="margin-top: 4px;">${label}</div>
-            <div style="margin-top: 6px;">${landlord}${turn}</div>
-            <div style="margin-top: 6px;">${count}</div>
-            <div style="margin-top: 8px;">${btn}</div>
+          <div class="seat ${mySeat === seat ? "you" : ""} ${turnClass}"${slotAttr}>
+            <div class="seat-head"><strong>${seat + 1} 号位</strong><span>${landlord}${turn}</span></div>
+            <div class="seat-meta">${label}</div>
+            <div>${count}</div>
+            ${actions}
           </div>
         `;
-      }).join("");
+      }).join("")}`;
 
       seatsWrap.querySelectorAll("button[data-seat]").forEach((btn) => {
         btn.addEventListener("click", async () => {
