@@ -126,6 +126,10 @@
       color: #174730;
       box-shadow: 0 4px 10px rgba(20, 88, 58, .18);
     }
+    #globalLayoutTools {
+      margin-top: 8px;
+      justify-content: flex-end;
+    }
     .seats {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -161,6 +165,16 @@
       overflow-y: visible;
       touch-action: pan-y;
       user-select: none;
+    }
+    .hand-scroll-wrap {
+      margin-top: 6px;
+      padding: 0 6px 2px;
+      display: none;
+    }
+    #handScrollBar {
+      width: 100%;
+      accent-color: #2b7d53;
+      cursor: pointer;
     }
     .card-btn {
       border: 0;
@@ -213,6 +227,12 @@
     .played-zone {
       display: grid;
       gap: 10px;
+    }
+    .played-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
     }
     .played-row {
       display: flex;
@@ -487,6 +507,41 @@
       color: #fff;
       border-color: #7a2413;
     }
+    body.in-match .grid {
+      grid-template-columns: minmax(300px, .95fr) minmax(430px, 1.25fr);
+      grid-template-areas:
+        "game played"
+        "room rules";
+      align-items: start;
+    }
+    body.in-match #roomSeatPanel { grid-area: room; }
+    body.in-match #gamePanel { grid-area: game; }
+    body.in-match #playedPanel { grid-area: played; }
+    body.in-match #rulesPanel { grid-area: rules; }
+    body.in-match #gamePanel,
+    body.in-match #playedPanel {
+      border-color: #cfae7a;
+      box-shadow: 0 14px 26px rgba(70, 51, 22, .18);
+    }
+    body.in-match #gameInfo {
+      font-size: 13px;
+      display: grid;
+      gap: 6px;
+      margin-bottom: 4px;
+      padding: 10px;
+      border: 1px solid #decbab;
+      border-radius: 10px;
+      background: linear-gradient(180deg, #fffdf8 0%, #f8f0dd 100%);
+    }
+    body.in-match #playedNow {
+      min-height: 170px;
+      max-height: 330px;
+    }
+    body.in-match .played-head .small {
+      font-size: 13px;
+      color: #514635;
+      font-weight: 600;
+    }
     body.landscape-ui .wrap { max-width: 1440px; }
     body.landscape-ui .grid {
       grid-template-columns: minmax(340px, .95fr) minmax(430px, 1.25fr);
@@ -498,8 +553,23 @@
     body.landscape-ui #handCards .card-btn { margin-left: -26px; }
     body.landscape-ui #handCards .card-btn:first-child { margin-left: 0; }
     body.landscape-ui.hand-expanded #handCards .card-btn { margin-left: 4px; }
+    body.landscape-ui.in-match .grid {
+      grid-template-columns: minmax(340px, 1fr) minmax(520px, 1.4fr);
+      grid-template-areas:
+        "game played"
+        "room rules";
+    }
     @media (max-width: 980px) {
       body.landscape-ui .grid { grid-template-columns: 1fr; }
+      body.in-match .grid {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+          "game"
+          "played"
+          "room"
+          "rules";
+      }
+      #globalLayoutTools { justify-content: flex-start; }
     }
     @media (max-width: 680px) {
       h1 { font-size: 17px; }
@@ -520,6 +590,21 @@
       body.landscape-ui .card-img { width: 56px; height: 80px; }
       body.landscape-ui #handCards .card-btn { margin-left: -20px; }
       body.landscape-ui.hand-expanded #handCards .card-btn { margin-left: 2px; }
+    }
+    @media (hover: none) and (pointer: coarse) and (orientation: landscape) {
+      .card-img {
+        transition: transform .08s ease;
+        box-shadow: 0 3px 8px rgba(44, 33, 18, .18);
+      }
+      .card-btn:hover:not(:disabled) .card-img {
+        transform: none;
+        box-shadow: 0 3px 8px rgba(44, 33, 18, .18);
+        filter: none;
+      }
+      .card-btn.selected .card-img {
+        transform: translateY(-6px);
+        box-shadow: 0 7px 12px rgba(42, 33, 19, .2);
+      }
     }
   </style>
 </head>
@@ -551,6 +636,10 @@
         <div id="authStatus" class="small">登录中...</div>
       </div>
       <div class="hero-note">当前重点是联机流程验证与规则体验。</div>
+      <div id="globalLayoutTools" class="layout-tools row">
+        <button id="toggleLandscapeBtn" type="button">横屏布局：关</button>
+        <button id="toggleHandExpandBtn" type="button">展开手牌：关</button>
+      </div>
     </div>
 
     <div class="panel">
@@ -583,7 +672,7 @@
     </div>
 
     <div class="grid">
-      <div class="panel">
+      <div class="panel" id="roomSeatPanel">
         <h2>房间与座位</h2>
         <div id="roomInfo" class="small">尚未加入房间</div>
         <div class="seats" id="seatsWrap" style="margin-top: 8px;"></div>
@@ -596,7 +685,7 @@
         </div>
       </div>
 
-      <div class="panel">
+      <div class="panel" id="gamePanel">
         <h2>游戏</h2>
         <div id="gameInfo" class="small">等待开局</div>
         <div class="row" id="bidWrap" style="margin-top: 8px; display: none;">
@@ -616,24 +705,25 @@
         </div>
         <div style="margin-top: 8px;">
           <div class="small">你的手牌</div>
-          <div class="layout-tools row">
-            <button id="toggleLandscapeBtn" type="button">横屏布局：关</button>
-            <button id="toggleHandExpandBtn" type="button">展开手牌：关</button>
-          </div>
           <div class="small muted">窄屏连选提示：拖动到左右边缘可自动滚动手牌。</div>
           <div id="handCards"></div>
+          <div id="handScrollWrap" class="hand-scroll-wrap">
+            <input id="handScrollBar" type="range" min="0" max="0" step="1" value="0" aria-label="手牌滚动条" />
+          </div>
         </div>
       </div>
 
-      <div class="panel">
+      <div class="panel" id="playedPanel">
         <h2>出牌窗口</h2>
         <div class="played-zone">
-          <div class="small">上一个玩家出的牌</div>
+          <div class="played-head">
+            <div id="playedTitle" class="small">上一个玩家出的牌</div>
+          </div>
           <div id="playedNow" class="played-row"></div>
         </div>
       </div>
 
-      <div class="panel">
+      <div class="panel" id="rulesPanel">
         <h2>规则说明</h2>
         <div id="rulesInfo" class="rules-box small"></div>
       </div>
@@ -771,6 +861,8 @@
     const playSelectedBtn = document.getElementById("playSelectedBtn");
     const passBtn = document.getElementById("passBtn");
     const handCards = document.getElementById("handCards");
+    const handScrollWrap = document.getElementById("handScrollWrap");
+    const handScrollBar = document.getElementById("handScrollBar");
     const toggleLandscapeBtn = document.getElementById("toggleLandscapeBtn");
     const toggleHandExpandBtn = document.getElementById("toggleHandExpandBtn");
     const eventLog = document.getElementById("eventLog");
@@ -779,6 +871,7 @@
     const toggleLobbyMessagesBtn = document.getElementById("toggleLobbyMessagesBtn");
     const lobbyMessagesHint = document.getElementById("lobbyMessagesHint");
     const lobbyMessagesList = document.getElementById("lobbyMessagesList");
+    const playedTitle = document.getElementById("playedTitle");
     const playedNow = document.getElementById("playedNow");
     const rulesInfo = document.getElementById("rulesInfo");
 
@@ -3682,6 +3775,33 @@
       }
     }
 
+    function updateHandScrollBar() {
+      if (!handCards || !handScrollWrap || !handScrollBar) return;
+      const max = Math.max(0, Math.round(handCards.scrollWidth - handCards.clientWidth));
+      if (max <= 1) {
+        handScrollWrap.style.display = "none";
+        handScrollBar.max = "0";
+        handScrollBar.value = "0";
+        return;
+      }
+      handScrollWrap.style.display = "block";
+      handScrollBar.max = String(max);
+      handScrollBar.value = String(Math.max(0, Math.min(max, Math.round(handCards.scrollLeft || 0))));
+    }
+
+    let handScrollRaf = 0;
+    function scheduleUpdateHandScrollBar() {
+      if (handScrollRaf) return;
+      handScrollRaf = requestAnimationFrame(() => {
+        handScrollRaf = 0;
+        updateHandScrollBar();
+      });
+    }
+
+    function syncPlaySelectedButton(canPlay) {
+      playSelectedBtn.disabled = !(canPlay && state.selectedCardIds.length > 0);
+    }
+
     function renderHand() {
       const cards = sortedHandCards(state.hand);
       if (!cards.length) {
@@ -3690,6 +3810,7 @@
         handCards.onpointermove = null;
         handCards.onpointerup = null;
         handCards.onpointercancel = null;
+        updateHandScrollBar();
         return;
       }
 
@@ -3704,6 +3825,7 @@
         const selected = state.selectedCardIds.includes(c.id) ? "selected" : "";
         return `<button class="card-btn ${selected}" data-card="${id}" title="${title}" style="z-index:${idx + 1}" ${canPlay ? "" : "disabled"}><img class="card-img" src="${src}" alt="${title}" /></button>`;
       }).join("");
+      scheduleUpdateHandScrollBar();
 
       const buttons = [...handCards.querySelectorAll("button[data-card]")];
       const btnById = new Map(buttons.map((btn) => [btn.dataset.card, btn]));
@@ -3734,7 +3856,7 @@
           const changed = setSelected(id, !state.selectedCardIds.includes(id));
           if (changed) {
             persistSelectedCards();
-            renderButtons();
+            syncPlaySelectedButton(canPlay);
           }
         });
       });
@@ -3806,11 +3928,11 @@
           pointerId: evt.pointerId,
           mode: state.selectedCardIds.includes(id) ? "remove" : "add",
           touched: new Set(),
-          changed: 0
+          changed: 0,
+          lastMoveAt: 0
         };
         applyDragSelect(id);
-        persistSelectedCards();
-        renderButtons();
+        syncPlaySelectedButton(canPlay);
         try {
           handCards.setPointerCapture(evt.pointerId);
         } catch {
@@ -3822,6 +3944,9 @@
       handCards.onpointermove = (evt) => {
         const drag = state.dragSelectSession;
         if (!drag || drag.pointerId !== evt.pointerId) return;
+        const now = performance.now();
+        if (now - drag.lastMoveAt < 16) return;
+        drag.lastMoveAt = now;
         let changed = false;
         const beforeId = hitCardIdByX(evt.clientX);
         if (beforeId) changed = applyDragSelect(beforeId) || changed;
@@ -3831,8 +3956,7 @@
           if (afterId) changed = applyDragSelect(afterId) || changed;
         }
         if (changed) {
-          persistSelectedCards();
-          renderButtons();
+          syncPlaySelectedButton(canPlay);
         }
       };
 
@@ -3842,7 +3966,7 @@
         state.suppressCardClick = true;
         state.dragSelectSession = null;
         persistSelectedCards();
-        renderButtons();
+        syncPlaySelectedButton(canPlay);
         try {
           handCards.releasePointerCapture(evt.pointerId);
         } catch {
@@ -3904,6 +4028,7 @@
     function renderPlayedWindow() {
       const room = state.room;
       if (!room || !room.game) {
+        if (playedTitle) playedTitle.textContent = "上一个玩家出的牌";
         state.playedRenderIds = [];
         state.playedRenderRoom = "";
         setPlayedNowHtml('<span class="small muted">等待对局开始</span>');
@@ -3911,6 +4036,16 @@
       }
 
       const mode = roomMode(room);
+      const limitN = playedWindowLimit(room);
+      if (playedTitle) {
+        if (room.status === "playing") {
+          playedTitle.textContent = `最近 ${limitN} 手（轮替显示）`;
+        } else if (room.status === "finished") {
+          playedTitle.textContent = `对局结束回顾（最近 ${limitN} 手）`;
+        } else {
+          playedTitle.textContent = "出牌记录";
+        }
+      }
       let extra = "";
       if (mode === MODE_POKER_B4 && room.game.teamCall?.resolved && room.game.teamCall?.chosenCardId) {
         const ownerSeat = room.game.teamCall?.ownerSeat;
@@ -3964,7 +4099,6 @@
         return;
       }
 
-      const limitN = playedWindowLimit(room);
       const shownPlays = trickPlays.slice(-limitN);
       const offset = trickPlays.length - shownPlays.length;
       const curIds = shownPlays.map((play, idx) => playedEntryId(play, offset + idx + 1));
@@ -4046,6 +4180,9 @@
     function applyLayoutModes() {
       document.body.classList.toggle("landscape-ui", !!state.landscapeUi);
       document.body.classList.toggle("hand-expanded", !!state.handExpanded);
+      const status = state.room?.status || "";
+      const inMatch = status === "bidding" || status === "playing" || status === "finished";
+      document.body.classList.toggle("in-match", inMatch);
       if (toggleLandscapeBtn) {
         toggleLandscapeBtn.classList.toggle("active", !!state.landscapeUi);
         toggleLandscapeBtn.textContent = state.landscapeUi ? "横屏布局：开" : "横屏布局：关";
@@ -4289,6 +4426,15 @@
       state.handExpanded = !state.handExpanded;
       localStorage.setItem(HAND_EXPANDED_KEY, state.handExpanded ? "1" : "0");
       render();
+    });
+    handScrollBar.addEventListener("input", () => {
+      handCards.scrollLeft = Number(handScrollBar.value || 0);
+    });
+    handCards.addEventListener("scroll", () => {
+      scheduleUpdateHandScrollBar();
+    }, { passive: true });
+    window.addEventListener("resize", () => {
+      scheduleUpdateHandScrollBar();
     });
 
     lobbyMessageInput.addEventListener("keydown", async (evt) => {
