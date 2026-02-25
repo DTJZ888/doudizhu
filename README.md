@@ -30,11 +30,14 @@
 这会创建：
 - `rooms`
 - `private_hands`
+- `archived_rooms`
 - RLS 策略
 - Realtime 发布表
 - 原子提交函数 `ddz_apply_room_and_hand`（用于回合动作一致性）
+- 周期清理函数 `ddz_run_housekeeping`（空房回收/结束房间归档/旧留言清理）
 
 > 若你是旧项目升级，请重新执行一次 `supabase.schema.sql`，以确保新函数已创建。
+> 页面端会每 15 分钟自动触发一次 `ddz_run_housekeeping`。
 
 ## 4. 填写前端配置
 

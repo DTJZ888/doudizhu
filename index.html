@@ -145,6 +145,8 @@
       padding: 8px 8px 10px;
       overflow-x: auto;
       overflow-y: visible;
+      touch-action: pan-y;
+      user-select: none;
     }
     .card-btn {
       border: 0;
@@ -206,6 +208,8 @@
       border: 1px solid #dbcdb5;
       border-radius: 10px;
       background: linear-gradient(180deg, #fffdf8 0%, #f8f1e3 100%);
+      overflow: auto;
+      scroll-behavior: smooth;
     }
     .rules-box {
       border: 1px solid #decfb5;
@@ -231,6 +235,15 @@
       margin-right: 8px;
       padding-right: 8px;
       border-right: 1px dashed #d8c8ae;
+      flex: 0 0 auto;
+      transform-origin: center bottom;
+    }
+    .played-turn.played-new {
+      animation: played-turn-enter .34s cubic-bezier(.22, .83, .21, 1.15);
+    }
+    @keyframes played-turn-enter {
+      from { transform: translateY(10px) scale(.94); opacity: .45; }
+      to { transform: translateY(0) scale(1); opacity: 1; }
     }
     .played-turn-cards {
       display: flex;
@@ -327,9 +340,136 @@
       color: #6a5731;
       font-size: 12px;
     }
+    .turn-banner {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      border: 1px solid #deb667;
+      background: linear-gradient(180deg, #fff2cf 0%, #f8df9f 100%);
+      color: #6e4f1a;
+      font-weight: 700;
+      animation: turn-banner-glow 1.2s ease-in-out infinite;
+    }
+    @keyframes turn-banner-glow {
+      0%, 100% { box-shadow: 0 0 0 rgba(216, 161, 42, 0); }
+      50% { box-shadow: 0 0 14px rgba(216, 161, 42, .34); }
+    }
     .seat.turning {
       border-color: #d0972f;
-      box-shadow: 0 0 0 2px rgba(213, 158, 46, .16) inset;
+      box-shadow:
+        0 0 0 2px rgba(213, 158, 46, .26) inset,
+        0 0 18px rgba(215, 153, 35, .34);
+      animation: seat-turn-pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes seat-turn-pulse {
+      0%, 100% {
+        box-shadow:
+          0 0 0 2px rgba(213, 158, 46, .24) inset,
+          0 0 14px rgba(215, 153, 35, .28);
+      }
+      50% {
+        box-shadow:
+          0 0 0 2px rgba(213, 158, 46, .35) inset,
+          0 0 22px rgba(225, 165, 44, .48);
+      }
+    }
+    .victory-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1200;
+      background: rgba(32, 17, 0, .35);
+      backdrop-filter: blur(1px);
+    }
+    .victory-overlay.show { display: flex; }
+    .victory-confetti,
+    .victory-fireworks {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .confetti-piece {
+      position: absolute;
+      top: -12vh;
+      width: 8px;
+      height: 18px;
+      border-radius: 2px;
+      opacity: .96;
+      animation: confetti-fall linear forwards;
+    }
+    @keyframes confetti-fall {
+      from { transform: translate3d(0, -12vh, 0) rotate(0deg); }
+      to { transform: translate3d(var(--drift, 0px), 112vh, 0) rotate(560deg); }
+    }
+    .firework-burst {
+      position: absolute;
+      width: 0;
+      height: 0;
+      left: 0;
+      top: 0;
+      pointer-events: none;
+    }
+    .firework-spark {
+      position: absolute;
+      width: 4px;
+      height: 4px;
+      border-radius: 999px;
+      background: hsl(var(--h), 92%, 60%);
+      box-shadow: 0 0 6px rgba(255, 219, 132, .9);
+      animation: spark-burst 880ms ease-out forwards;
+    }
+    @keyframes spark-burst {
+      from { transform: translate3d(0, 0, 0) scale(1); opacity: 1; }
+      to { transform: translate3d(var(--dx, 0px), var(--dy, 0px), 0) scale(.25); opacity: 0; }
+    }
+    .firework-ring {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      margin-left: -5px;
+      margin-top: -5px;
+      border-radius: 999px;
+      border: 2px solid rgba(255, 215, 140, .9);
+      animation: ring-pop 680ms ease-out forwards;
+      pointer-events: none;
+    }
+    @keyframes ring-pop {
+      from { transform: scale(.2); opacity: 1; }
+      to { transform: scale(6.8); opacity: 0; }
+    }
+    .victory-card {
+      position: relative;
+      z-index: 2;
+      width: min(92vw, 420px);
+      padding: 18px 18px 16px;
+      border-radius: 16px;
+      border: 1px solid #f2d8a5;
+      background: linear-gradient(180deg, #fff8e8 0%, #f9ecd0 100%);
+      box-shadow: 0 20px 50px rgba(30, 16, 0, .35);
+      text-align: center;
+      color: #4f3f26;
+    }
+    .victory-title {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: .04em;
+      color: #b22d18;
+      margin-bottom: 8px;
+    }
+    #victoryText {
+      color: #5f4f35;
+      margin-bottom: 12px;
+      line-height: 1.5;
+    }
+    #victoryCloseBtn {
+      background: #8f2e1c;
+      color: #fff;
+      border-color: #7a2413;
     }
     @media (max-width: 680px) {
       h1 { font-size: 17px; }
@@ -341,6 +481,7 @@
       .played-card-call { width: 34px; height: 50px; }
       .played-owner-chip { min-width: 76px; padding: 5px 6px; }
       .played-owner-name { font-size: 11px; max-width: 100px; }
+      .victory-title { font-size: 23px; }
     }
   </style>
 </head>
@@ -352,6 +493,16 @@
       <input id="gateInput" type="password" inputmode="numeric" placeholder="输入访问码" maxlength="12" />
       <button id="gateBtn" class="primary">进入</button>
       <div id="gateMsg" class="gate-msg"></div>
+    </div>
+  </div>
+
+  <div id="victoryOverlay" class="victory-overlay" aria-hidden="true">
+    <div id="victoryConfetti" class="victory-confetti"></div>
+    <div id="victoryFireworks" class="victory-fireworks"></div>
+    <div class="victory-card">
+      <div class="victory-title">胜利！</div>
+      <div id="victoryText" class="small">本局获胜</div>
+      <button id="victoryCloseBtn">收起庆祝</button>
     </div>
   </div>
 
@@ -488,6 +639,13 @@
     const LOBBY_MSG_PREVIEW_COUNT = 30;
     const LOBBY_MSG_PAGE_SIZE = 200;
     const AI_UID_PREFIX = "ai_";
+    const LAST_ROOM_KEY_PREFIX = "ddz_last_room_";
+    const SELECTED_KEY_PREFIX = "ddz_sel_";
+    const PLAYED_POS_KEY_PREFIX = "ddz_played_pos_";
+    const HOUSEKEEP_INTERVAL_MS = 15 * 60 * 1000;
+    const HOUSEKEEP_EMPTY_MINUTES = 120;
+    const HOUSEKEEP_FINISHED_MINUTES = 360;
+    const HOUSEKEEP_KEEP_MESSAGE_DAYS = 30;
 
     const state = {
       uid: "",
@@ -508,7 +666,20 @@
       lobbyPollTimer: null,
       lobbyMsgReady: false,
       lobbyMsgDisabled: false,
-      aiBusy: false
+      aiBusy: false,
+      victoryShownKey: "",
+      victoryAutoTimer: null,
+      victoryBurstTimers: [],
+      networkOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
+      housekeepingTimer: null,
+      lastHousekeepAt: 0,
+      housekeepMissingRpc: false,
+      playedScrollSaveTimer: null,
+      playedRenderIds: [],
+      playedRenderRoom: "",
+      playedScrollRoom: "",
+      suppressCardClick: false,
+      dragSelectSession: null
     };
 
     const authStatus = document.getElementById("authStatus");
@@ -516,6 +687,11 @@
     const gateInput = document.getElementById("gateInput");
     const gateBtn = document.getElementById("gateBtn");
     const gateMsg = document.getElementById("gateMsg");
+    const victoryOverlay = document.getElementById("victoryOverlay");
+    const victoryConfetti = document.getElementById("victoryConfetti");
+    const victoryFireworks = document.getElementById("victoryFireworks");
+    const victoryText = document.getElementById("victoryText");
+    const victoryCloseBtn = document.getElementById("victoryCloseBtn");
     const nicknameInput = document.getElementById("nicknameInput");
     const saveNickBtn = document.getElementById("saveNickBtn");
     const gameModeSelect = document.getElementById("gameModeSelect");
@@ -570,6 +746,100 @@
       const d = new Date(ts || Date.now());
       if (Number.isNaN(d.getTime())) return "-";
       return d.toLocaleString();
+    }
+
+    function lastRoomStorageKey(uid = state.uid) {
+      return uid ? `${LAST_ROOM_KEY_PREFIX}${uid}` : "";
+    }
+
+    function selectedCardsStorageKey(roomId = state.roomId, uid = state.uid) {
+      return roomId && uid ? `${SELECTED_KEY_PREFIX}${uid}_${roomId}` : "";
+    }
+
+    function playedPosStorageKey(roomId = state.roomId, uid = state.uid) {
+      return roomId && uid ? `${PLAYED_POS_KEY_PREFIX}${uid}_${roomId}` : "";
+    }
+
+    function persistLastRoom(roomId) {
+      const key = lastRoomStorageKey();
+      if (!key) return;
+      if (!roomId) {
+        localStorage.removeItem(key);
+        return;
+      }
+      localStorage.setItem(key, String(roomId));
+    }
+
+    function readLastRoom() {
+      const key = lastRoomStorageKey();
+      if (!key) return "";
+      return localStorage.getItem(key) || "";
+    }
+
+    function persistSelectedCards() {
+      const key = selectedCardsStorageKey();
+      if (!key) return;
+      if (!Array.isArray(state.selectedCardIds) || !state.selectedCardIds.length) {
+        localStorage.removeItem(key);
+        return;
+      }
+      localStorage.setItem(key, JSON.stringify(state.selectedCardIds.slice(0, 40)));
+    }
+
+    function restoreSelectedCards() {
+      const key = selectedCardsStorageKey();
+      if (!key) return [];
+      const raw = localStorage.getItem(key);
+      if (!raw) return [];
+      try {
+        const arr = JSON.parse(raw);
+        return Array.isArray(arr) ? arr.map((x) => String(x || "")) : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function clearSelectedCardsPersist(roomId = state.roomId) {
+      const key = selectedCardsStorageKey(roomId);
+      if (key) localStorage.removeItem(key);
+    }
+
+    function savePlayedWindowPos() {
+      const key = playedPosStorageKey();
+      if (!key || !playedNow) return;
+      const payload = {
+        x: Number(playedNow.scrollLeft || 0),
+        y: Number(playedNow.scrollTop || 0),
+        at: Date.now()
+      };
+      localStorage.setItem(key, JSON.stringify(payload));
+    }
+
+    function scheduleSavePlayedWindowPos() {
+      if (state.playedScrollSaveTimer) clearTimeout(state.playedScrollSaveTimer);
+      state.playedScrollSaveTimer = setTimeout(() => {
+        state.playedScrollSaveTimer = null;
+        savePlayedWindowPos();
+      }, 120);
+    }
+
+    function restorePlayedWindowPos() {
+      const key = playedPosStorageKey();
+      if (!key || !playedNow) return;
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      try {
+        const pos = JSON.parse(raw);
+        playedNow.scrollLeft = Number(pos?.x || 0);
+        playedNow.scrollTop = Number(pos?.y || 0);
+      } catch {
+        // ignore malformed cache
+      }
+    }
+
+    function clearPlayedPosPersist(roomId = state.roomId) {
+      const key = playedPosStorageKey(roomId);
+      if (key) localStorage.removeItem(key);
     }
 
     function setLobbyMsgDisabled(msg) {
@@ -778,7 +1048,9 @@
       if (raw.includes("NetworkError") || raw.includes("Failed to fetch")) return "网络异常，无法连接 Supabase";
       if (raw.includes("permission") || raw.includes("policy")) return "数据库权限不足（请检查 RLS 策略）";
       if (raw.includes("42P01")) return "数据表不存在（请执行最新 supabase.schema.sql）";
-      if (raw.includes("PGRST202") || raw.includes("ddz_apply_room_and_hand")) return "数据库未升级：请执行最新 supabase.schema.sql";
+      if (raw.includes("PGRST202") || raw.includes("ddz_apply_room_and_hand") || raw.includes("ddz_run_housekeeping")) {
+        return "数据库未升级：请执行最新 supabase.schema.sql";
+      }
       if (raw.includes("22P02")) return "数据格式错误（可能是旧房间中的 AI 标识未迁移）";
       if (raw.includes("23505")) return "房间码冲突，请重试";
       return code || msg || "未知错误";
@@ -1327,18 +1599,13 @@
 
       if (!data) {
         showMsg("房间不存在或已解散", true);
-        detachRoomListeners();
-        state.roomId = "";
-        state.room = null;
-        state.hand = {};
-        state.selectedCardIds = [];
-        roomCodeLabel.textContent = "-";
-        history.replaceState({}, "", location.pathname);
+        resetLocalLobbyState();
         render();
         return;
       }
 
       state.room = mapRoomRow(data);
+      persistLastRoom(state.roomId);
       if (hasLegacyAiIds(state.room)) {
         await mutateRoom(state.roomId, (work) => {
           ensureRoomStateShape(work);
@@ -1370,7 +1637,11 @@
       }
 
       state.hand = data?.cards || {};
+      if (!state.selectedCardIds.length) {
+        state.selectedCardIds = restoreSelectedCards();
+      }
       state.selectedCardIds = state.selectedCardIds.filter((id) => !!state.hand[id]);
+      persistSelectedCards();
     }
 
     async function refreshRoomAndHand(runAi = true) {
@@ -1581,6 +1852,39 @@
       return { committed: false, reason: "conflict" };
     }
 
+    async function runHousekeeping(force = false) {
+      if (!supabase || !state.uid || state.housekeepMissingRpc) return;
+
+      const now = Date.now();
+      if (!force && now - state.lastHousekeepAt < HOUSEKEEP_INTERVAL_MS) return;
+      state.lastHousekeepAt = now;
+
+      const { data, error } = await supabase.rpc("ddz_run_housekeeping", {
+        p_empty_minutes: HOUSEKEEP_EMPTY_MINUTES,
+        p_finished_minutes: HOUSEKEEP_FINISHED_MINUTES,
+        p_message_days: HOUSEKEEP_KEEP_MESSAGE_DAYS
+      });
+
+      if (error) {
+        const code = String(error.code || "");
+        const msg = String(error.message || "");
+        if (code === "PGRST202" || msg.includes("ddz_run_housekeeping")) {
+          state.housekeepMissingRpc = true;
+          log("提示：数据库尚未升级 housekeeping RPC（可忽略，但建议执行最新 schema）");
+          return;
+        }
+        throw error;
+      }
+
+      const row = Array.isArray(data) ? data[0] : data;
+      const archived = Number(row?.archived_finished || 0);
+      const deletedEmpty = Number(row?.deleted_empty || 0);
+      const deletedMessages = Number(row?.deleted_messages || 0);
+      if (archived || deletedEmpty || deletedMessages) {
+        log(`系统清理：归档${archived}，回收空房${deletedEmpty}，清理旧留言${deletedMessages}`);
+      }
+    }
+
     async function createRoom() {
       if (!supabase) {
         showMsg("请先填写 SUPABASE_CONFIG", true);
@@ -1639,9 +1943,12 @@
 
           if (data && data.length === 1) {
             state.roomId = code;
+            persistLastRoom(code);
             roomCodeInput.value = code;
             roomCodeLabel.textContent = code;
             history.replaceState({}, "", `${location.pathname}?room=${encodeURIComponent(code)}`);
+            state.playedRenderIds = [];
+            state.playedRenderRoom = code;
             attachRoomListeners();
             showMsg(`已创建并加入房间 ${code}`);
             log(`已创建房间 ${code}`);
@@ -1655,24 +1962,24 @@
       }
     }
 
-    async function joinRoom(roomId) {
+    async function joinRoom(roomId, options = {}) {
       if (!supabase) {
         showMsg("请先填写 SUPABASE_CONFIG", true);
-        return;
+        return false;
       }
       if (state.roomId) {
         showMsg("请先离开当前房间", true);
-        return;
+        return false;
       }
       if (!state.uid) {
         showMsg("尚未登录，请稍后再试", true);
-        return;
+        return false;
       }
 
       const code = (roomId || "").trim().toUpperCase();
       if (!code) {
         showMsg("请输入房间码", true);
-        return;
+        return false;
       }
 
       try {
@@ -1688,20 +1995,25 @@
         });
 
         if (!result.committed) {
-          showMsg("加入失败：房间不存在或已满（最多 9 人）", true);
-          return;
+          if (!options.silent) showMsg("加入失败：房间不存在或已满（最多 9 人）", true);
+          return false;
         }
 
         state.roomId = code;
+        persistLastRoom(code);
         roomCodeInput.value = code;
         roomCodeLabel.textContent = code;
         history.replaceState({}, "", `${location.pathname}?room=${encodeURIComponent(code)}`);
+        state.playedRenderIds = [];
+        state.playedRenderRoom = code;
         attachRoomListeners();
-        showMsg("已加入房间");
+        if (!options.silent) showMsg("已加入房间");
         log(`已进入房间 ${code}`);
+        return true;
       } catch (err) {
-        showMsg(`加入失败：${friendlyErr(err)}`, true);
+        if (!options.silent) showMsg(`加入失败：${friendlyErr(err)}`, true);
         log(`加入房间异常：${friendlyErr(err)}`);
+        return false;
       }
     }
 
@@ -1752,15 +2064,29 @@
       render();
     }
 
-    function resetLocalLobbyState() {
+    function resetLocalLobbyState(opts = {}) {
+      const keepRoomHint = !!opts.keepRoomHint;
+      const prevRoomId = state.roomId;
       detachRoomListeners();
+      if (state.playedScrollSaveTimer) {
+        clearTimeout(state.playedScrollSaveTimer);
+        state.playedScrollSaveTimer = null;
+      }
       state.roomId = "";
       state.room = null;
       state.hand = {};
       state.selectedCardIds = [];
+      state.playedRenderIds = [];
+      state.playedRenderRoom = "";
+      state.playedScrollRoom = "";
       roomCodeLabel.textContent = "-";
       roomCodeInput.value = "";
       history.replaceState({}, "", location.pathname);
+      if (!keepRoomHint) {
+        persistLastRoom("");
+        clearSelectedCardsPersist(prevRoomId);
+        clearPlayedPosPersist(prevRoomId);
+      }
     }
 
     async function closeRoomByHost() {
@@ -2880,6 +3206,7 @@
 
       state.hand = finalHand;
       state.selectedCardIds = [];
+      persistSelectedCards();
     }
 
     async function pass() {
@@ -2928,6 +3255,7 @@
         return;
       }
       state.selectedCardIds = [];
+      persistSelectedCards();
     }
 
     async function undoLastPlay() {
@@ -2962,6 +3290,7 @@
 
       state.hand = clone(snapshot.beforeHand || {});
       state.selectedCardIds = [];
+      persistSelectedCards();
       showMsg("已悔牌");
       log("执行悔牌，已回到上一步出牌前状态");
       render();
@@ -3000,6 +3329,7 @@
 
       state.hand = {};
       state.selectedCardIds = [];
+      persistSelectedCards();
       showMsg("已重开，返回大厅");
       log("房主执行重开，对局已重置");
       render();
@@ -3079,13 +3409,132 @@
         <div>模式：${escapeHtml(modeLabel(room.gameMode))}</div>
         <div>在线人数：${members.length}/${room.maxMembers || 9}</div>
         <div>入座人数：${seated}（可开局范围：${startRange}）</div>
-        <div>同步：${state.realtimeReady ? "实时通道" : "轮询"}</div>
+        <div>同步：${state.realtimeReady ? "实时通道" : "轮询"} / 网络：${state.networkOnline ? "在线" : "离线"}</div>
         <div style="margin-top: 6px;">成员：${members.map(([uid, v]) => {
           const host = uid === room.hostUid ? "(房主)" : "";
           const ai = v?.isAi ? "(AI)" : "";
           return `${escapeHtml(v.nick || uid.slice(0, 6))}${host}${ai}`;
         }).join("、")}</div>
       `;
+    }
+
+    function getWinnerSummary(room) {
+      const game = room?.game || {};
+      const mode = roomMode(room);
+      const winnerSeats = Array.isArray(game.winnerSeats) && game.winnerSeats.length
+        ? game.winnerSeats
+        : (Number.isInteger(game.winnerSeat) ? [game.winnerSeat] : []);
+      const winnerNames = winnerSeats
+        .map((seat) => room?.seats?.[String(seat)])
+        .filter(Boolean)
+        .map((uid) => nameOf(uid));
+      let winnerText = winnerNames.length ? `胜者：${winnerNames.join("、")}` : "胜者：待定";
+      if (mode === MODE_CLASSIC) {
+        if (game.winnerSide === "landlord") winnerText = `地主胜：${winnerNames.join("、") || "-"}`;
+        if (game.winnerSide === "farmers") winnerText = `农民胜：${winnerNames.join("、") || "-"}`;
+      }
+      if (mode === MODE_POKER_B4) {
+        if (game.winnerSide === "team_b_pair") winnerText = `黑桃A阵营胜：${winnerNames.join("、") || "-"}`;
+        if (game.winnerSide === "team_b_opp") winnerText = `对家阵营胜：${winnerNames.join("、") || "-"}`;
+      }
+      return { winnerSeats, winnerNames, winnerText };
+    }
+
+    function clearVictoryTimers() {
+      if (state.victoryAutoTimer) {
+        clearTimeout(state.victoryAutoTimer);
+        state.victoryAutoTimer = null;
+      }
+      for (const tid of state.victoryBurstTimers) clearTimeout(tid);
+      state.victoryBurstTimers = [];
+    }
+
+    function hideVictoryCelebration() {
+      clearVictoryTimers();
+      victoryOverlay.classList.remove("show");
+      victoryOverlay.setAttribute("aria-hidden", "true");
+      victoryConfetti.innerHTML = "";
+      victoryFireworks.innerHTML = "";
+    }
+
+    function spawnConfetti(count = 120) {
+      const palette = ["#f44336", "#ff9800", "#ffeb3b", "#4caf50", "#2196f3", "#f06292"];
+      for (let i = 0; i < count; i += 1) {
+        const piece = document.createElement("span");
+        piece.className = "confetti-piece";
+        piece.style.left = `${Math.random() * 100}%`;
+        piece.style.background = palette[Math.floor(Math.random() * palette.length)];
+        piece.style.opacity = `${0.7 + Math.random() * 0.3}`;
+        piece.style.animationDelay = `${Math.random() * 0.9}s`;
+        piece.style.animationDuration = `${2.8 + Math.random() * 2.9}s`;
+        piece.style.setProperty("--drift", `${Math.round((Math.random() * 2 - 1) * 120)}px`);
+        victoryConfetti.appendChild(piece);
+      }
+    }
+
+    function spawnFireworkBurst(xPct, yPct, size = 74, sparks = 14) {
+      const burst = document.createElement("div");
+      burst.className = "firework-burst";
+      burst.style.left = `${xPct}%`;
+      burst.style.top = `${yPct}%`;
+
+      const ring = document.createElement("span");
+      ring.className = "firework-ring";
+      burst.appendChild(ring);
+
+      for (let i = 0; i < sparks; i += 1) {
+        const angle = ((Math.PI * 2) / sparks) * i + (Math.random() * 0.22 - 0.11);
+        const dist = size * (0.62 + Math.random() * 0.48);
+        const spark = document.createElement("span");
+        spark.className = "firework-spark";
+        spark.style.setProperty("--dx", `${Math.cos(angle) * dist}px`);
+        spark.style.setProperty("--dy", `${Math.sin(angle) * dist}px`);
+        spark.style.setProperty("--h", `${Math.floor(Math.random() * 360)}`);
+        burst.appendChild(spark);
+      }
+
+      victoryFireworks.appendChild(burst);
+      const tid = setTimeout(() => burst.remove(), 950);
+      state.victoryBurstTimers.push(tid);
+    }
+
+    function launchVictoryCelebration(text) {
+      hideVictoryCelebration();
+      victoryText.textContent = `恭喜！${text}`;
+      victoryOverlay.classList.add("show");
+      victoryOverlay.setAttribute("aria-hidden", "false");
+      spawnConfetti(128);
+
+      for (let i = 0; i < 10; i += 1) {
+        const tid = setTimeout(() => {
+          const x = 12 + Math.random() * 76;
+          const y = 18 + Math.random() * 50;
+          spawnFireworkBurst(x, y, 62 + Math.random() * 26, 12 + Math.floor(Math.random() * 4));
+        }, i * 230);
+        state.victoryBurstTimers.push(tid);
+      }
+
+      state.victoryAutoTimer = setTimeout(() => {
+        hideVictoryCelebration();
+      }, 7200);
+    }
+
+    function maybeShowVictoryCelebration() {
+      const room = state.room;
+      if (!room || room.status !== "finished" || !room.game) {
+        hideVictoryCelebration();
+        return;
+      }
+
+      const mySeat = getMySeat(room);
+      const { winnerSeats, winnerText } = getWinnerSummary(room);
+      const key = `${state.roomId}|${room.game.round || 0}|${room.game.winnerSide || ""}|${winnerSeats.join(",")}`;
+      if (!Number.isInteger(mySeat) || !winnerSeats.includes(mySeat)) return;
+      if (state.victoryShownKey === key) return;
+
+      state.victoryShownKey = key;
+      launchVictoryCelebration(winnerText);
+      log("胜利庆祝已触发：撒花 + 鞭炮");
     }
 
     function renderGame() {
@@ -3118,16 +3567,17 @@
         const last = game.lastPlay ? `${game.lastPlay.label}（${nameOf(game.lastPlay.uid)}）` : "无（新一轮）";
         const landlordUid = room.seats?.[String(game.landlordSeat)];
         const turnUid = room.seats?.[String(game.turnSeat)];
+        const turnTag = `<div class="turn-banner">轮到：${escapeHtml(nameOf(turnUid))}</div>`;
         if (mode === MODE_POKER_A4) {
           gameInfo.innerHTML = `
             <div>阶段：4人扑克A出牌</div>
-            <div>当前：${escapeHtml(nameOf(turnUid))}</div>
+            <div>${turnTag}</div>
             <div>最近牌：${escapeHtml(last)}</div>
           `;
         } else if (mode === MODE_POKER_A2) {
           gameInfo.innerHTML = `
             <div>阶段：双人扑克A出牌</div>
-            <div>当前：${escapeHtml(nameOf(turnUid))}</div>
+            <div>${turnTag}</div>
             <div>最近牌：${escapeHtml(last)}</div>
             <div>开牌：已随机抽离 ${(game.openedCards || []).length || 10} 张</div>
           `;
@@ -3139,21 +3589,21 @@
             : `等待 ${escapeHtml(nameOf(callUid))}（黑桃A）选择队友牌`;
           gameInfo.innerHTML = `
             <div>阶段：4人模式B出牌</div>
-            <div>当前：${escapeHtml(nameOf(turnUid))}</div>
+            <div>${turnTag}</div>
             <div>最近牌：${escapeHtml(last)}</div>
             <div>${waiting}</div>
           `;
         } else if (mode === MODE_SOLO_VALIDATE) {
           gameInfo.innerHTML = `
             <div>阶段：单人验证出牌</div>
-            <div>当前：${escapeHtml(nameOf(turnUid))}</div>
+            <div>${turnTag}</div>
             <div>最近牌：${escapeHtml(last)}</div>
           `;
         } else {
           gameInfo.innerHTML = `
             <div>阶段：出牌</div>
             <div>地主：${escapeHtml(nameOf(landlordUid))}</div>
-            <div>当前：${escapeHtml(nameOf(turnUid))}</div>
+            <div>${turnTag}</div>
             <div>最近牌：${escapeHtml(last)}</div>
             <div>底牌状态：${game.bottomClaimed ? "已发放" : "房主发放中"}</div>
           `;
@@ -3161,22 +3611,7 @@
         bidWrap.style.display = "none";
         playActions.style.display = mySeat === game.turnSeat && game.bottomClaimed ? "flex" : "none";
       } else if (room.status === "finished") {
-        const winnerSeats = Array.isArray(game.winnerSeats) && game.winnerSeats.length
-          ? game.winnerSeats
-          : (Number.isInteger(game.winnerSeat) ? [game.winnerSeat] : []);
-        const winnerNames = winnerSeats
-          .map((seat) => room.seats?.[String(seat)])
-          .filter(Boolean)
-          .map((uid) => nameOf(uid));
-        let winnerText = winnerNames.length ? `胜者：${winnerNames.join("、")}` : "胜者：待定";
-        if (mode === MODE_CLASSIC) {
-          if (game.winnerSide === "landlord") winnerText = `地主胜：${winnerNames.join("、") || "-"}`;
-          if (game.winnerSide === "farmers") winnerText = `农民胜：${winnerNames.join("、") || "-"}`;
-        }
-        if (mode === MODE_POKER_B4) {
-          if (game.winnerSide === "team_b_pair") winnerText = `黑桃A阵营胜：${winnerNames.join("、") || "-"}`;
-          if (game.winnerSide === "team_b_opp") winnerText = `对家阵营胜：${winnerNames.join("、") || "-"}`;
-        }
+        const { winnerText } = getWinnerSummary(room);
         const range = (mode === MODE_POKER_A4 || mode === MODE_POKER_B4)
           ? "4"
           : (mode === MODE_POKER_A2 ? "2" : (mode === MODE_SOLO_VALIDATE ? "1" : `${TABLE_MIN_PLAYERS}-${TABLE_MAX_PLAYERS}`));
@@ -3195,6 +3630,10 @@
       const cards = sortedHandCards(state.hand);
       if (!cards.length) {
         handCards.innerHTML = '<span class="small muted">暂无手牌</span>';
+        handCards.onpointerdown = null;
+        handCards.onpointermove = null;
+        handCards.onpointerup = null;
+        handCards.onpointercancel = null;
         return;
       }
 
@@ -3210,19 +3649,112 @@
         return `<button class="card-btn ${selected}" data-card="${id}" title="${title}" style="z-index:${idx + 1}" ${canPlay ? "" : "disabled"}><img class="card-img" src="${src}" alt="${title}" /></button>`;
       }).join("");
 
-      handCards.querySelectorAll("button[data-card]").forEach((btn) => {
-        btn.addEventListener("click", async () => {
+      const buttons = [...handCards.querySelectorAll("button[data-card]")];
+      const btnById = new Map(buttons.map((btn) => [btn.dataset.card, btn]));
+
+      const setSelected = (id, selected) => {
+        if (!id || !state.hand?.[id]) return false;
+        const has = state.selectedCardIds.includes(id);
+        if (selected && !has) {
+          state.selectedCardIds = [...state.selectedCardIds, id];
+        } else if (!selected && has) {
+          state.selectedCardIds = state.selectedCardIds.filter((x) => x !== id);
+        } else {
+          return false;
+        }
+        const btn = btnById.get(id);
+        if (btn) btn.classList.toggle("selected", selected);
+        return true;
+      };
+
+      buttons.forEach((btn) => {
+        btn.addEventListener("click", () => {
           if (!canPlay) return;
-          const id = btn.dataset.card;
-          if (state.selectedCardIds.includes(id)) {
-            state.selectedCardIds = state.selectedCardIds.filter((x) => x !== id);
-          } else {
-            state.selectedCardIds = [...state.selectedCardIds, id];
+          if (state.suppressCardClick) {
+            state.suppressCardClick = false;
+            return;
           }
-          renderHand();
-          renderButtons();
+          const id = btn.dataset.card;
+          const changed = setSelected(id, !state.selectedCardIds.includes(id));
+          if (changed) {
+            persistSelectedCards();
+            renderButtons();
+          }
         });
       });
+
+      if (!canPlay) {
+        handCards.onpointerdown = null;
+        handCards.onpointermove = null;
+        handCards.onpointerup = null;
+        handCards.onpointercancel = null;
+        return;
+      }
+
+      const applyDragSelect = (cardId) => {
+        const drag = state.dragSelectSession;
+        if (!drag || !cardId || drag.touched.has(cardId)) return false;
+        drag.touched.add(cardId);
+        drag.changed += setSelected(cardId, drag.mode === "add") ? 1 : 0;
+        return true;
+      };
+
+      const hitCardId = (evt) => {
+        const el = document.elementFromPoint(evt.clientX, evt.clientY);
+        const btn = el?.closest?.("button[data-card]");
+        return btn?.dataset?.card || "";
+      };
+
+      handCards.onpointerdown = (evt) => {
+        if (!canPlay) return;
+        if (evt.pointerType === "mouse") return;
+        const btn = evt.target?.closest?.("button[data-card]");
+        if (!btn?.dataset?.card) return;
+
+        const id = btn.dataset.card;
+        state.dragSelectSession = {
+          pointerId: evt.pointerId,
+          mode: state.selectedCardIds.includes(id) ? "remove" : "add",
+          touched: new Set(),
+          changed: 0
+        };
+        applyDragSelect(id);
+        persistSelectedCards();
+        renderButtons();
+        try {
+          handCards.setPointerCapture(evt.pointerId);
+        } catch {
+          // ignore
+        }
+        evt.preventDefault();
+      };
+
+      handCards.onpointermove = (evt) => {
+        const drag = state.dragSelectSession;
+        if (!drag || drag.pointerId !== evt.pointerId) return;
+        const id = hitCardId(evt);
+        if (!id) return;
+        if (applyDragSelect(id)) {
+          persistSelectedCards();
+          renderButtons();
+        }
+      };
+
+      const endDrag = (evt) => {
+        const drag = state.dragSelectSession;
+        if (!drag || drag.pointerId !== evt.pointerId) return;
+        state.suppressCardClick = true;
+        state.dragSelectSession = null;
+        persistSelectedCards();
+        renderButtons();
+        try {
+          handCards.releasePointerCapture(evt.pointerId);
+        } catch {
+          // ignore
+        }
+      };
+      handCards.onpointerup = endDrag;
+      handCards.onpointercancel = endDrag;
     }
 
     function renderButtons() {
@@ -3248,10 +3780,37 @@
       closeRoomBtn.disabled = !(room && room.hostUid === state.uid);
     }
 
+    function playedEntryId(play, serial) {
+      const at = Number(play?.at || 0);
+      const uid = String(play?.uid || "");
+      const seat = Number.isInteger(play?.seat) ? play.seat : -1;
+      const label = String(play?.label || "");
+      return `${serial}|${at}|${seat}|${uid}|${label}`;
+    }
+
+    function setPlayedNowHtml(html) {
+      const prevX = Number(playedNow.scrollLeft || 0);
+      const prevY = Number(playedNow.scrollTop || 0);
+      const sameRoom = state.playedScrollRoom === (state.roomId || "");
+      playedNow.innerHTML = html;
+      requestAnimationFrame(() => {
+        if (sameRoom && (prevX || prevY)) {
+          playedNow.scrollLeft = prevX;
+          playedNow.scrollTop = prevY;
+        } else {
+          restorePlayedWindowPos();
+        }
+      });
+      state.playedScrollRoom = state.roomId || "";
+      scheduleSavePlayedWindowPos();
+    }
+
     function renderPlayedWindow() {
       const room = state.room;
       if (!room || !room.game) {
-        playedNow.innerHTML = '<span class="small muted">等待对局开始</span>';
+        state.playedRenderIds = [];
+        state.playedRenderRoom = "";
+        setPlayedNowHtml('<span class="small muted">等待对局开始</span>');
         return;
       }
 
@@ -3280,18 +3839,20 @@
 
       const trickPlays = Array.isArray(room.game.trickPlays) ? room.game.trickPlays : [];
       if (!trickPlays.length) {
+        state.playedRenderIds = [];
+        state.playedRenderRoom = state.roomId || "";
         const last = room.game.lastPlay;
         if (!last) {
-          playedNow.innerHTML = `${extra}<span class="small muted">暂无出牌记录</span>`;
+          setPlayedNowHtml(`${extra}<span class="small muted">暂无出牌记录</span>`);
           return;
         }
         const cards = (Array.isArray(last.cards) ? last.cards : [last]).map((x) => normalizeCard(x)).filter(Boolean);
         if (!cards.length) {
-          playedNow.innerHTML = `${extra}<span class="small muted">暂无可显示的出牌</span>`;
+          setPlayedNowHtml(`${extra}<span class="small muted">暂无可显示的出牌</span>`);
           return;
         }
         const who = escapeHtml(last.uid === state.uid ? "你" : nameOf(last.uid));
-        playedNow.innerHTML = `${extra}
+        setPlayedNowHtml(`${extra}
           <div class="small muted">旧房间兼容：仅显示最近一手</div>
           ${cards.map((card) => {
             const src = cardImageUrl(card);
@@ -3303,25 +3864,33 @@
               </div>
             `;
           }).join("")}
-        `;
+        `);
         return;
       }
 
       const limitN = playedWindowLimit(room);
       const shownPlays = trickPlays.slice(-limitN);
       const offset = trickPlays.length - shownPlays.length;
+      const curIds = shownPlays.map((play, idx) => playedEntryId(play, offset + idx + 1));
+      const sameRoom = state.playedRenderRoom === (state.roomId || "");
+      const prevIds = sameRoom ? state.playedRenderIds : [];
+      const newIdSet = new Set(prevIds.length ? curIds.filter((id) => !prevIds.includes(id)) : []);
+      state.playedRenderIds = curIds;
+      state.playedRenderRoom = state.roomId || "";
       const tip = trickPlays.length > shownPlays.length
         ? `<div class="small muted">共 ${trickPlays.length} 手，当前轮替显示最近 ${shownPlays.length} 手</div>`
         : "";
 
-      playedNow.innerHTML = `${extra}${tip}${shownPlays.map((play, idx) => {
+      setPlayedNowHtml(`${extra}${tip}${shownPlays.map((play, idx) => {
+        const id = curIds[idx];
+        const enterClass = newIdSet.has(id) ? " played-new" : "";
         const who = escapeHtml(play.uid === state.uid ? "你" : nameOf(play.uid));
         const cards = (Array.isArray(play.cards) ? play.cards : [play]).map((x) => normalizeCard(x)).filter(Boolean);
         if (!cards.length) {
           return `<div class="small muted">第 ${offset + idx + 1} 手：${who}（数据不可用）</div>`;
         }
         return `
-          <div class="played-turn">
+          <div class="played-turn${enterClass}">
             <div class="small">${offset + idx + 1}. ${who}</div>
             <div class="played-turn-cards">
               ${cards.map((card) => {
@@ -3337,7 +3906,7 @@
             </div>
           </div>
         `;
-      }).join("")}`;
+      }).join("")}`);
     }
 
     function renderTeamCall() {
@@ -3388,6 +3957,7 @@
       renderRulesInfo();
       renderLobbyMessages();
       renderButtons();
+      maybeShowVictoryCelebration();
     }
 
     let authInitStarted = false;
@@ -3416,6 +3986,43 @@
         return;
       }
       unlockGateAndStart();
+    }
+
+    async function tryRestoreRoomAfterAuth() {
+      if (state.roomId) return true;
+      const roomFromUrl = new URL(location.href).searchParams.get("room");
+      if (roomFromUrl) {
+        const okByUrl = await joinRoom(roomFromUrl, { silent: false });
+        if (okByUrl) return true;
+      }
+
+      const saved = readLastRoom();
+      if (!saved) return false;
+      const ok = await joinRoom(saved, { silent: true });
+      if (!ok) persistLastRoom("");
+      if (ok) showMsg(`已恢复到上次房间 ${saved}`);
+      return ok;
+    }
+
+    async function handleNetworkOnline() {
+      state.networkOnline = true;
+      showMsg("网络已恢复，正在重连同步...");
+      log("网络已恢复，尝试重连同步");
+      render();
+      if (!state.uid) return;
+      if (state.roomId) {
+        attachRoomListeners();
+        await refreshRoomAndHand();
+      } else {
+        await tryRestoreRoomAfterAuth();
+      }
+    }
+
+    function handleNetworkOffline() {
+      state.networkOnline = false;
+      showMsg("网络已断开，等待自动重连", true);
+      log("网络已断开，等待自动重连");
+      render();
     }
 
     async function initAuth() {
@@ -3459,9 +4066,27 @@
 
       authStatus.textContent = `匿名登录：${state.uid.slice(0, 8)}...`;
       attachLobbyListeners();
-      const roomFromUrl = new URL(location.href).searchParams.get("room");
-      if (roomFromUrl && !state.roomId) {
-        await joinRoom(roomFromUrl);
+      await tryRestoreRoomAfterAuth();
+      try {
+        await runHousekeeping(true);
+      } catch (err) {
+        log(`系统清理任务失败：${friendlyErr(err)}`);
+      }
+      if (state.housekeepingTimer) clearInterval(state.housekeepingTimer);
+      state.housekeepingTimer = setInterval(async () => {
+        try {
+          await runHousekeeping(false);
+        } catch (err) {
+          log(`系统清理任务失败：${friendlyErr(err)}`);
+        }
+      }, HOUSEKEEP_INTERVAL_MS);
+      if (state.roomId) {
+        const saved = restoreSelectedCards();
+        if (saved.length && !state.selectedCardIds.length) {
+          state.selectedCardIds = saved;
+          persistSelectedCards();
+          render();
+        }
       }
     }
 
@@ -3554,13 +4179,31 @@
     gateInput.addEventListener("keydown", (evt) => {
       if (evt.key === "Enter") submitGate();
     });
+    playedNow.addEventListener("scroll", () => {
+      scheduleSavePlayedWindowPos();
+    });
+    window.addEventListener("online", () => {
+      handleNetworkOnline().catch((err) => {
+        log(`网络恢复后同步失败：${friendlyErr(err)}`);
+      });
+    });
+    window.addEventListener("offline", () => {
+      handleNetworkOffline();
+    });
+    victoryCloseBtn.addEventListener("click", () => {
+      hideVictoryCelebration();
+    });
 
     window.addEventListener("beforeunload", () => {
       if (state.pollTimer) clearInterval(state.pollTimer);
       if (state.lobbyPollTimer) clearInterval(state.lobbyPollTimer);
+      if (state.housekeepingTimer) clearInterval(state.housekeepingTimer);
       for (const fn of state.roomUnsubs) fn();
       for (const fn of state.lobbyUnsubs) fn();
       if (state.authUnsub) state.authUnsub();
+      savePlayedWindowPos();
+      if (state.playedScrollSaveTimer) clearTimeout(state.playedScrollSaveTimer);
+      clearVictoryTimers();
     });
 
     window.__ddzState = state;

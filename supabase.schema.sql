@@ -34,6 +34,25 @@ create table if not exists public.lobby_messages (
 create index if not exists idx_lobby_messages_created_at
   on public.lobby_messages(created_at asc);
 
+create table if not exists public.archived_rooms (
+  id bigint generated always as identity primary key,
+  room_id text not null,
+  status text not null,
+  archived_reason text not null default '',
+  winner_side text,
+  winner_seats jsonb not null default '[]'::jsonb,
+  payload jsonb not null,
+  created_at timestamptz,
+  finished_at timestamptz,
+  archived_at timestamptz not null default now()
+);
+
+create index if not exists idx_archived_rooms_archived_at
+  on public.archived_rooms(archived_at desc);
+
+create index if not exists idx_archived_rooms_room_id
+  on public.archived_rooms(room_id);
+
 create or replace function public.touch_updated_at()
 returns trigger
 language plpgsql
@@ -57,6 +76,7 @@ for each row execute function public.touch_updated_at();
 alter table public.rooms enable row level security;
 alter table public.private_hands enable row level security;
 alter table public.lobby_messages enable row level security;
+alter table public.archived_rooms enable row level security;
 
 -- rooms：所有已登录用户可读写（原型级，便于快速联机）
 drop policy if exists rooms_select_all on public.rooms;
@@ -152,6 +172,19 @@ with check (
   and char_length(message) <= 200
   and char_length(nick) <= 24
 );
+
+drop policy if exists lobby_messages_delete_auth on public.lobby_messages;
+
+-- archived_rooms：允许所有已登录用户读取；系统清理流程插入归档。
+drop policy if exists archived_rooms_select_all on public.archived_rooms;
+create policy archived_rooms_select_all on public.archived_rooms
+for select to authenticated
+using (true);
+
+drop policy if exists archived_rooms_insert_auth on public.archived_rooms;
+create policy archived_rooms_insert_auth on public.archived_rooms
+for insert to authenticated
+with check (true);
 
 -- 原子回合提交：在一次事务内更新房间状态和某个玩家手牌。
 -- 说明：这是“稳定性优先”的第一步，核心规则判定仍在前端，服务端先做关键身份/轮次校验。
@@ -286,6 +319,96 @@ $$;
 grant execute on function public.ddz_apply_room_and_hand(
   text, bigint, uuid, text, integer, jsonb, uuid, integer, boolean, boolean, uuid, jsonb
 ) to authenticated;
+
+-- 周期清理：归档已结束房间、回收空房、清理过期留言。
+create or replace function public.ddz_run_housekeeping(
+  p_empty_minutes integer default 120,
+  p_finished_minutes integer default 360,
+  p_message_days integer default 30
+)
+returns table (
+  archived_finished integer,
+  deleted_empty integer,
+  deleted_messages integer
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_archived integer := 0;
+  v_deleted_finished integer := 0;
+  v_deleted_empty integer := 0;
+  v_deleted_messages integer := 0;
+begin
+  if auth.uid() is null then
+    return query select 0, 0, 0;
+    return;
+  end if;
+
+  with to_archive as (
+    select r.*
+    from public.rooms r
+    where r.status = 'finished'
+      and r.updated_at < now() - make_interval(mins => greatest(p_finished_minutes, 1))
+  )
+  insert into public.archived_rooms (
+    room_id,
+    status,
+    archived_reason,
+    winner_side,
+    winner_seats,
+    payload,
+    created_at,
+    finished_at
+  )
+  select
+    t.room_id,
+    t.status,
+    'finished_auto',
+    t.state->'game'->>'winnerSide',
+    coalesce(t.state->'game'->'winnerSeats', '[]'::jsonb),
+    jsonb_build_object(
+      'room_id', t.room_id,
+      'host_uid', t.host_uid,
+      'max_members', t.max_members,
+      'status', t.status,
+      'state', t.state,
+      'revision', t.revision,
+      'created_at', t.created_at,
+      'updated_at', t.updated_at
+    ),
+    t.created_at,
+    t.updated_at
+  from to_archive t;
+  get diagnostics v_archived = row_count;
+
+  delete from public.rooms r
+  where r.status = 'finished'
+    and r.updated_at < now() - make_interval(mins => greatest(p_finished_minutes, 1));
+  get diagnostics v_deleted_finished = row_count;
+
+  delete from public.rooms r
+  where r.status = 'lobby'
+    and r.updated_at < now() - make_interval(mins => greatest(p_empty_minutes, 1))
+    and coalesce(jsonb_object_length(coalesce(r.state->'members', '{}'::jsonb)), 0) = 0;
+  get diagnostics v_deleted_empty = row_count;
+
+  delete from public.lobby_messages m
+  where m.created_at < now() - make_interval(days => greatest(p_message_days, 1));
+  get diagnostics v_deleted_messages = row_count;
+
+  -- 返回归档数量；为避免双重统计，若删除数小于归档数，回落到删除数。
+  if v_archived > v_deleted_finished then
+    v_archived := v_deleted_finished;
+  end if;
+
+  return query select v_archived, v_deleted_empty, v_deleted_messages;
+end;
+$$;
+
+grant execute on function public.ddz_run_housekeeping(integer, integer, integer)
+to authenticated;
 
 -- 实时订阅（可选，但建议打开）
 do $$
