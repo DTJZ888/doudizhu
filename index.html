@@ -197,25 +197,26 @@
       top: 8px;
       left: 50%;
       transform: translateX(-50%);
-      width: min(54%, 520px);
+      width: min(46%, 460px);
     }
     .seats.table-view .seat[data-slot="left"] {
       left: 8px;
-      top: 50%;
+      top: 44%;
       transform: translateY(-50%);
-      width: min(36%, 260px);
+      width: min(28%, 210px);
     }
     .seats.table-view .seat[data-slot="right"] {
       right: 8px;
-      top: 50%;
+      top: 44%;
       transform: translateY(-50%);
-      width: min(36%, 260px);
+      width: min(28%, 210px);
     }
     .seats.table-view .seat[data-slot="bottom"] {
       left: 50%;
       bottom: 8px;
       transform: translateX(-50%);
       width: min(92%, 920px);
+      min-height: 188px;
     }
     .table-info-hud {
       position: absolute;
@@ -241,10 +242,10 @@
     .table-last-play {
       position: absolute;
       left: 50%;
-      top: 56%;
+      top: 50%;
       transform: translate(-50%, -50%);
       min-width: 200px;
-      max-width: 70%;
+      max-width: 78%;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -287,6 +288,53 @@
     }
     .seat-hand-mini-card:first-child {
       margin-left: 0;
+    }
+    .table-center-dock {
+      position: absolute;
+      left: 14%;
+      right: 14%;
+      top: 40%;
+      transform: translateY(-50%);
+      z-index: 4;
+    }
+    .table-center-dock > #playedPanel {
+      width: 100%;
+      border: 0;
+      border-radius: 10px;
+      padding: 0;
+      box-shadow: none;
+      background: transparent;
+    }
+    .table-center-dock > #playedPanel h2 {
+      display: none;
+    }
+    .table-center-dock > #playedPanel .played-zone {
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(224, 206, 172, .9);
+      background: rgba(255, 249, 237, .95);
+      box-shadow: 0 6px 16px rgba(52, 42, 26, .18);
+    }
+    .table-center-dock > #playedPanel #playedNow {
+      min-height: 96px;
+      max-height: 140px;
+    }
+    .seat-play-dock {
+      margin-top: 8px;
+    }
+    .seat-play-dock > #gamePanel {
+      width: 100%;
+      border: 0;
+      border-radius: 10px;
+      padding: 6px 8px;
+      box-shadow: none;
+      background: rgba(255, 249, 237, .95);
+    }
+    .seat-play-dock > #gamePanel h2 {
+      display: none;
+    }
+    .seat-play-dock > #gamePanel #gameInfo {
+      margin-bottom: 6px;
     }
     .hidden-hand {
       margin-top: 6px;
@@ -819,64 +867,23 @@
       z-index: 1;
     }
     body.landscape-ui.in-match.table-core-ui #unifiedWindowHost {
-      display: block;
-      position: static;
-      z-index: auto;
-      margin-top: 8px;
-      display: grid;
-      gap: 8px;
+      display: none;
     }
     body.landscape-ui.in-match.table-core-ui .seats.table-view {
       min-height: 42dvh;
       border-color: #3c5f95;
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14), 0 8px 18px rgba(35, 31, 24, .22);
     }
-    body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #playedPanel {
-      position: static;
-      min-height: 0;
-      max-height: none;
-      border-bottom: 0;
-      padding: 0;
-      z-index: auto;
-      pointer-events: auto;
-      width: 100%;
-      background: transparent;
-      box-shadow: none;
+    body.landscape-ui.in-match.table-core-ui .table-center-dock {
+      left: 12%;
+      right: 12%;
+      top: 43%;
     }
-    body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #playedPanel .played-zone {
-      padding: 6px 8px;
-      border-radius: 10px;
-      border: 1px solid rgba(224, 206, 172, .84);
-      background: rgba(255, 249, 237, .92);
-      box-shadow: 0 6px 16px rgba(52, 42, 26, .18);
-    }
-    body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #playedNow {
-      min-height: 80px;
-      max-height: 136px;
-    }
-    body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #gamePanel {
-      position: static;
-      min-height: 0;
-      padding: 8px 10px;
-      z-index: auto;
-      pointer-events: auto;
-      width: 100%;
-      background: linear-gradient(180deg, rgba(248, 241, 228, .88) 0%, rgba(244, 234, 214, .95) 100%);
-      border-radius: 12px;
-      border: 1px solid rgba(210, 187, 146, .86);
-      box-shadow: 0 8px 20px rgba(41, 31, 18, .2);
-      backdrop-filter: blur(2px);
-    }
-    body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #gamePanel h2 {
+    body.landscape-ui.in-match.table-core-ui .table-last-play {
       display: none;
     }
-    body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #gameInfo {
-      margin-bottom: 4px;
-      padding: 8px;
-      background: rgba(255, 251, 241, .82);
-    }
-    body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #handSection {
-      margin-top: 6px !important;
+    body.landscape-ui.in-match.table-core-ui .seat-hand-mini {
+      display: none;
     }
     @media (max-width: 980px) {
       body.landscape-ui .grid { grid-template-columns: 1fr; }
@@ -942,32 +949,30 @@
         padding: 6px;
       }
       body.landscape-ui.in-match .seats.table-view .seat[data-slot="top"] {
-        width: min(56%, 460px);
+        width: min(48%, 420px);
       }
       body.landscape-ui.in-match .seats.table-view .seat[data-slot="left"],
       body.landscape-ui.in-match .seats.table-view .seat[data-slot="right"] {
-        width: min(34%, 220px);
+        width: min(26%, 180px);
       }
       body.landscape-ui.in-match .seats.table-view .seat[data-slot="bottom"] {
-        width: min(94%, 700px);
+        width: min(96%, 760px);
       }
       body.landscape-ui.in-match .table-info-hud {
-        width: min(52%, 360px);
+        width: min(46%, 320px);
         padding: 6px 8px;
       }
-      body.landscape-ui.in-match .table-last-play {
-        max-width: 78%;
-        top: 58%;
-        padding: 5px 8px;
+      body.landscape-ui.in-match .table-center-dock {
+        left: 10%;
+        right: 10%;
+        top: 44%;
       }
-      body.landscape-ui.in-match .table-last-play .played-card {
-        width: 34px;
-        height: 50px;
+      body.landscape-ui.in-match .table-center-dock > #playedPanel #playedNow {
+        min-height: 10dvh;
+        max-height: 16dvh;
       }
-      body.landscape-ui.in-match .seat-hand-mini-card {
-        width: 22px;
-        height: 32px;
-        margin-left: -8px;
+      body.landscape-ui.in-match .seat-play-dock > #gamePanel {
+        padding: 6px 6px;
       }
       body.landscape-ui.in-match.table-core-ui .grid {
         min-height: auto;
@@ -978,18 +983,10 @@
       body.landscape-ui.in-match.table-core-ui .seats.table-view {
         min-height: 38dvh;
       }
-      body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #playedPanel {
-        min-height: 0;
-        max-height: none;
-        padding: 0;
-      }
-      body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #playedNow {
-        min-height: 10dvh;
-        max-height: 16dvh;
-      }
-      body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #gamePanel {
-        min-height: 0;
-        padding: 6px 8px;
+      body.landscape-ui.in-match.table-core-ui .table-center-dock {
+        left: 9%;
+        right: 9%;
+        top: 45%;
       }
       .card-img {
         transition: transform .08s ease;
@@ -3970,6 +3967,7 @@
           <div class="line">最近牌：${escapeHtml(centerLast)}</div>
         </div>
       ` : "";
+      const coreOn = tableView && inMatch && !!state.tableCoreUi;
       const tableLastHtml = tableView ? `
         <div class="table-last-play">
           <span class="small">${escapeHtml(lastPlayWho)}：</span>
@@ -3985,8 +3983,9 @@
           </div>
         </div>
       ` : "";
+      const tableCenterDockHtml = coreOn ? `<div id="tableCenterDock" class="table-center-dock"></div>` : "";
 
-      seatsWrap.innerHTML = `${tableInfoHtml}${tableLastHtml}${seatIndexes.map((seat) => {
+      seatsWrap.innerHTML = `${tableInfoHtml}${tableLastHtml}${tableCenterDockHtml}${seatIndexes.map((seat) => {
         const uid = room.seats?.[String(seat)] || null;
         const isMine = uid && uid === state.uid;
         const aiTag = uid && room.members?.[uid]?.isAi ? " <span class='pill'>AI</span>" : "";
@@ -4000,7 +3999,7 @@
             ? `<div class='seat-meta'>剩余牌：已隐藏</div>${hiddenHandHtml(remaining)}`
             : `<div class='seat-meta'>剩余牌：${remaining}</div>`)
           : "";
-        const mineHandPreview = (tableView && inMatch && isMine)
+        const mineHandPreview = (tableView && inMatch && isMine && !coreOn)
           ? `<div class='seat-meta'>当前手牌</div>
              <div class='seat-hand-mini'>${
                sortedHandCards(state.hand || {}).map((card) => {
@@ -4010,6 +4009,7 @@
                }).join("")
              }</div>`
           : "";
+        const seatPlayDock = (coreOn && isMine) ? `<div id="seatPlayDock" class="seat-play-dock"></div>` : "";
         const btn = !allowSeatActions
           ? ""
           : (uid
@@ -4029,6 +4029,7 @@
             <div class="seat-meta">${label}</div>
             <div>${count}</div>
             ${mineHandPreview}
+            ${seatPlayDock}
             ${actions}
           </div>
         `;
@@ -4782,8 +4783,18 @@
     function syncUnifiedWindowPanels(useUnified) {
       if (!gridRoot || !unifiedWindowHost || !gamePanelEl || !playedPanelEl) return;
       if (useUnified) {
-        if (playedPanelEl.parentElement !== unifiedWindowHost) unifiedWindowHost.appendChild(playedPanelEl);
-        if (gamePanelEl.parentElement !== unifiedWindowHost) unifiedWindowHost.appendChild(gamePanelEl);
+        const centerDock = document.getElementById("tableCenterDock");
+        const seatPlayDock = document.getElementById("seatPlayDock");
+        if (centerDock) {
+          if (playedPanelEl.parentElement !== centerDock) centerDock.appendChild(playedPanelEl);
+        } else if (playedPanelEl.parentElement !== unifiedWindowHost) {
+          unifiedWindowHost.appendChild(playedPanelEl);
+        }
+        if (seatPlayDock) {
+          if (gamePanelEl.parentElement !== seatPlayDock) seatPlayDock.appendChild(gamePanelEl);
+        } else if (gamePanelEl.parentElement !== unifiedWindowHost) {
+          unifiedWindowHost.appendChild(gamePanelEl);
+        }
         return;
       }
 
