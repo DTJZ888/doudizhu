@@ -696,7 +696,7 @@
         </div>
         <div style="margin-top: 8px;">
           <div class="small">你的手牌</div>
-          <div class="small muted">点选手牌进行选择，再点同一张可取消。</div>
+          <div class="small muted">点选手牌进行选择；手机端长按约 0.3 秒可连选，抬手提交。</div>
           <div id="handCards"></div>
           <div id="handScrollWrap" class="hand-scroll-wrap">
             <input id="handScrollBar" type="range" min="0" max="0" step="1" value="0" aria-label="手牌滚动条" />
@@ -3878,6 +3878,8 @@
         id: btn.dataset.card || "",
         center: btn.offsetLeft + (btn.offsetWidth / 2)
       })).filter((x) => !!x.id);
+      const orderedIds = cardCenters.map((x) => x.id);
+      const indexById = new Map(orderedIds.map((id, idx) => [id, idx]));
       const hitRanges = cardCenters.map((c, idx) => {
         const prev = idx > 0 ? cardCenters[idx - 1] : null;
         const next = idx < cardCenters.length - 1 ? cardCenters[idx + 1] : null;
@@ -3894,21 +3896,106 @@
         const hit = hitRanges.find((r) => x >= r.start && x < r.end);
         return hit?.id || hitRanges[hitRanges.length - 1].id || "";
       };
+      const idsInRange = (startId, endId) => {
+        const a = indexById.get(startId);
+        const b = indexById.get(endId);
+        if (a == null || b == null) return [];
+        const from = Math.min(a, b);
+        const to = Math.max(a, b);
+        return orderedIds.slice(from, to + 1);
+      };
+      const paintSelectedFromSet = (set) => {
+        buttons.forEach((btn) => {
+          const id = btn.dataset.card || "";
+          btn.classList.toggle("selected", set.has(id));
+        });
+      };
+      const paintPreviewRange = (baseSet, startId, endId) => {
+        if (!startId || !endId) {
+          paintSelectedFromSet(baseSet);
+          return;
+        }
+        const previewSet = new Set(baseSet);
+        idsInRange(startId, endId).forEach((id) => previewSet.add(id));
+        paintSelectedFromSet(previewSet);
+      };
 
       if (canPlay) {
         handCards.onpointerdown = (evt) => {
           if (evt.pointerType === "mouse") return;
+          const anchorId = hitCardIdByX(evt.clientX);
+          if (!anchorId) return;
+          if (tapSession?.holdTimer) clearTimeout(tapSession.holdTimer);
           tapSession = {
             pointerId: evt.pointerId,
             x: evt.clientX,
             y: evt.clientY,
-            at: performance.now()
+            lx: evt.clientX,
+            ly: evt.clientY,
+            at: performance.now(),
+            anchorId,
+            hoverId: anchorId,
+            longPress: false,
+            baseSelected: new Set(selectedSet),
+            holdTimer: 0
           };
+          tapSession.holdTimer = window.setTimeout(() => {
+            if (!tapSession || tapSession.pointerId !== evt.pointerId) return;
+            const moveX = Math.abs(tapSession.lx - tapSession.x);
+            const moveY = Math.abs(tapSession.ly - tapSession.y);
+            if (moveX > 10 || moveY > 10) return;
+            tapSession.longPress = true;
+            paintPreviewRange(tapSession.baseSelected, tapSession.anchorId, tapSession.hoverId);
+            if (navigator.vibrate) navigator.vibrate(10);
+          }, 280);
         };
-        handCards.onpointermove = null;
+        handCards.onpointermove = (evt) => {
+          if (evt.pointerType === "mouse") return;
+          if (!tapSession || tapSession.pointerId !== evt.pointerId) return;
+          tapSession.lx = evt.clientX;
+          tapSession.ly = evt.clientY;
+          const dx = Math.abs(evt.clientX - tapSession.x);
+          const dy = Math.abs(evt.clientY - tapSession.y);
+          if (!tapSession.longPress) {
+            if (dx > 18 || dy > 18) {
+              if (tapSession.holdTimer) {
+                clearTimeout(tapSession.holdTimer);
+                tapSession.holdTimer = 0;
+              }
+            }
+            return;
+          }
+          const id = hitCardIdByX(evt.clientX);
+          if (!id || id === tapSession.hoverId) return;
+          tapSession.hoverId = id;
+          paintPreviewRange(tapSession.baseSelected, tapSession.anchorId, tapSession.hoverId);
+          evt.preventDefault();
+        };
         handCards.onpointerup = (evt) => {
           if (evt.pointerType === "mouse") return;
           if (!tapSession || tapSession.pointerId !== evt.pointerId) return;
+          if (tapSession.holdTimer) {
+            clearTimeout(tapSession.holdTimer);
+            tapSession.holdTimer = 0;
+          }
+          if (tapSession.longPress) {
+            const ids = idsInRange(tapSession.anchorId, tapSession.hoverId);
+            let changed = false;
+            ids.forEach((id) => {
+              changed = setSelected(id, true) || changed;
+            });
+            tapSession = null;
+            if (changed) {
+              flushSelectedState();
+              persistSelectedCards();
+              syncPlaySelectedButton(canPlay);
+            } else {
+              paintSelectedFromSet(selectedSet);
+            }
+            state.touchHandledUntil = Date.now() + 420;
+            evt.preventDefault();
+            return;
+          }
           const dx = Math.abs(evt.clientX - tapSession.x);
           const dy = Math.abs(evt.clientY - tapSession.y);
           const dt = performance.now() - tapSession.at;
@@ -3921,6 +4008,8 @@
           evt.preventDefault();
         };
         handCards.onpointercancel = () => {
+          if (tapSession?.holdTimer) clearTimeout(tapSession.holdTimer);
+          paintSelectedFromSet(selectedSet);
           tapSession = null;
         };
       } else {
