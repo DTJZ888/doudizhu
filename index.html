@@ -724,6 +724,7 @@
       if (raw.includes("NetworkError") || raw.includes("Failed to fetch")) return "网络异常，无法连接 Supabase";
       if (raw.includes("permission") || raw.includes("policy")) return "数据库权限不足（请检查 RLS 策略）";
       if (raw.includes("42P01")) return "数据表不存在（请执行最新 supabase.schema.sql）";
+      if (raw.includes("22P02")) return "数据格式错误（可能是旧房间中的 AI 标识未迁移）";
       if (raw.includes("23505")) return "房间码冲突，请重试";
       return code || msg || "未知错误";
     }
@@ -777,12 +778,46 @@
       return roomLike?.state?.gameMode || roomLike?.gameMode || MODE_CLASSIC;
     }
 
-    function isAiUid(uid) {
-      return typeof uid === "string" && uid.startsWith(AI_UID_PREFIX);
+    function aiHexFromSeed(seed) {
+      let h1 = 2166136261 >>> 0;
+      let h2 = 2246822519 >>> 0;
+      const text = String(seed || "");
+      for (let i = 0; i < text.length; i += 1) {
+        const c = text.charCodeAt(i);
+        h1 ^= c;
+        h1 = Math.imul(h1, 16777619) >>> 0;
+        h2 ^= c;
+        h2 = Math.imul(h2, 2246822519) >>> 0;
+      }
+      return `${h1.toString(16).padStart(8, "0")}${h2.toString(16).padStart(8, "0")}`;
+    }
+
+    function aiUuidFromSeed(seed) {
+      const tail = aiHexFromSeed(seed).slice(0, 12);
+      return `00000000-0000-4000-8000-${tail}`;
+    }
+
+    function legacyAiUidToUuid(uid) {
+      if (typeof uid !== "string" || !uid.startsWith(AI_UID_PREFIX)) return uid;
+      return aiUuidFromSeed(uid);
+    }
+
+    function isAiUid(uid, roomLike = state.room) {
+      if (typeof uid !== "string") return false;
+      if (uid.startsWith(AI_UID_PREFIX)) return true;
+      return !!roomLike?.members?.[uid]?.isAi;
     }
 
     function aiUid(roomId, seat) {
-      return `${AI_UID_PREFIX}${roomId}_${seat}`;
+      return aiUuidFromSeed(`${roomId}_${seat}`);
+    }
+
+    function hasLegacyAiIds(roomLike) {
+      if (!roomLike) return false;
+      const membersLegacy = Object.keys(roomLike.members || {}).some((uid) => String(uid).startsWith(AI_UID_PREFIX));
+      const seatsLegacy = Object.values(roomLike.seats || {}).some((uid) => String(uid || "").startsWith(AI_UID_PREFIX));
+      const callLegacy = String(roomLike.game?.teamCall?.ownerUid || "").startsWith(AI_UID_PREFIX);
+      return membersLegacy || seatsLegacy || callLegacy;
     }
 
     function modeRulesText(mode) {
@@ -843,6 +878,42 @@
       work.state = work.state || {};
       work.state.gameMode = work.state.gameMode || MODE_CLASSIC;
       work.state.members = work.state.members || {};
+      work.state.seats = work.state.seats || {};
+      work.state.ready = work.state.ready || {};
+      work.state.publicCounts = work.state.publicCounts || {};
+
+      const remap = new Map();
+      for (const oldUid of Object.keys(work.state.members)) {
+        if (!String(oldUid).startsWith(AI_UID_PREFIX)) continue;
+        const newUid = legacyAiUidToUuid(oldUid);
+        if (newUid === oldUid) continue;
+        remap.set(oldUid, newUid);
+        if (!work.state.members[newUid]) work.state.members[newUid] = clone(work.state.members[oldUid] || {});
+        work.state.members[newUid].isAi = true;
+        if (!work.state.members[newUid].nick) work.state.members[newUid].nick = "AI";
+        delete work.state.members[oldUid];
+      }
+      if (remap.size) {
+        for (const seat of Object.keys(work.state.seats)) {
+          const uid = work.state.seats[seat];
+          if (remap.has(uid)) work.state.seats[seat] = remap.get(uid);
+        }
+        for (const [oldUid, newUid] of remap.entries()) {
+          if (oldUid in work.state.ready) {
+            work.state.ready[newUid] = work.state.ready[oldUid];
+            delete work.state.ready[oldUid];
+          }
+          if (oldUid in work.state.publicCounts) {
+            work.state.publicCounts[newUid] = work.state.publicCounts[oldUid];
+            delete work.state.publicCounts[oldUid];
+          }
+          if (work.state.game?.teamCall?.ownerUid === oldUid) {
+            work.state.game.teamCall.ownerUid = newUid;
+          }
+        }
+        if (remap.has(work.host_uid)) work.host_uid = remap.get(work.host_uid);
+      }
+
       work.state.seatCount = Math.max(
         TABLE_SEAT_MIN,
         Math.min(TABLE_SEAT_COUNT, Number(work.state.seatCount) || TABLE_SEAT_COUNT)
@@ -861,8 +932,6 @@
         const key = String(seat);
         if (!(key in work.state.seats)) work.state.seats[key] = null;
       }
-      work.state.ready = work.state.ready || {};
-      work.state.publicCounts = work.state.publicCounts || {};
       if (typeof work.max_members !== "number") work.max_members = 9;
     }
 
@@ -1191,6 +1260,17 @@
       }
 
       state.room = mapRoomRow(data);
+      if (hasLegacyAiIds(state.room)) {
+        await mutateRoom(state.roomId, (work) => {
+          ensureRoomStateShape(work);
+        });
+        const { data: refreshed } = await supabase
+          .from("rooms")
+          .select("*")
+          .eq("room_id", state.roomId)
+          .maybeSingle();
+        if (refreshed) state.room = mapRoomRow(refreshed);
+      }
       await cleanupGhostSeats();
       await autoFixHost();
       await hostGrantBottomIfNeeded();
@@ -1602,8 +1682,8 @@
         if (targetSeat !== null) {
           const key = String(targetSeat);
           const occupied = room.state.seats[key];
-          if (occupied && !isAiUid(occupied)) return false;
-          if (occupied && isAiUid(occupied)) {
+          if (occupied && !isAiUid(occupied, { members: room.state.members })) return false;
+          if (occupied && isAiUid(occupied, { members: room.state.members })) {
             room.state.seats[key] = null;
             delete room.state.members[occupied];
             delete room.state.ready[occupied];
@@ -1925,7 +2005,7 @@
         const ownerUid = room.state.seats[String(ownerSeat)];
         const mySeat = getMySeat(mapRoomRow(room));
         const selfOwner = mySeat !== null && mySeat === ownerSeat && ownerUid === state.uid;
-        const hostDriveAi = room.host_uid === state.uid && isAiUid(ownerUid);
+        const hostDriveAi = room.host_uid === state.uid && isAiUid(ownerUid, { members: room.state.members });
         if (!selfOwner && !hostDriveAi) return false;
 
         const options = room.state.game.teamCall?.options || [];
@@ -2368,7 +2448,7 @@
       if (!room?.game?.bid) return false;
       const seat = room.game.bid.currentSeat;
       const uid = room.seats?.[String(seat)];
-      if (!isAiUid(uid)) return false;
+      if (!isAiUid(uid, room)) return false;
 
       const tx = await mutateRoom(state.roomId, (work) => {
         ensureRoomStateShape(work);
@@ -2376,7 +2456,7 @@
         const b = work.state.game.bid;
         const s = b.currentSeat;
         const u = work.state.seats[String(s)];
-        if (!isAiUid(u)) return false;
+        if (!isAiUid(u, { members: work.state.members })) return false;
         if (b.bids[String(s)] !== null) return false;
 
         const highest = Number(b.highestBid || 0);
@@ -2420,7 +2500,7 @@
       if (!room?.game?.teamCall || room.game.teamCall.resolved) return false;
       const ownerSeat = room.game.teamCall.ownerSeat;
       const ownerUid = room.seats?.[String(ownerSeat)];
-      if (!isAiUid(ownerUid)) return false;
+      if (!isAiUid(ownerUid, room)) return false;
       const pick = room.game.teamCall.options?.[0];
       if (!pick) return false;
       await chooseTeamCard(pick);
@@ -2431,7 +2511,7 @@
       if (!room?.game || room.status !== "playing" || !room.game.bottomClaimed) return false;
       const actorSeat = room.game.turnSeat;
       const actorUid = room.seats?.[String(actorSeat)];
-      if (!isAiUid(actorUid)) return false;
+      if (!isAiUid(actorUid, room)) return false;
 
       const handMap = await fetchHandByUid(actorUid);
       const mode = roomMode(room);
