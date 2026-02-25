@@ -696,7 +696,7 @@
         </div>
         <div style="margin-top: 8px;">
           <div class="small">你的手牌</div>
-          <div class="small muted">点选手牌进行选择；手机端长按约 0.3 秒可连选，抬手提交。</div>
+          <div class="small muted">点选手牌进行选择；手机端横向滑动可连选，抬手提交。</div>
           <div id="handCards"></div>
           <div id="handScrollWrap" class="hand-scroll-wrap">
             <input id="handScrollBar" type="range" min="0" max="0" step="1" value="0" aria-label="手牌滚动条" />
@@ -3925,44 +3925,29 @@
           if (evt.pointerType === "mouse") return;
           const anchorId = hitCardIdByX(evt.clientX);
           if (!anchorId) return;
-          if (tapSession?.holdTimer) clearTimeout(tapSession.holdTimer);
           tapSession = {
             pointerId: evt.pointerId,
             x: evt.clientX,
             y: evt.clientY,
-            lx: evt.clientX,
-            ly: evt.clientY,
             at: performance.now(),
             anchorId,
             hoverId: anchorId,
-            longPress: false,
-            baseSelected: new Set(selectedSet),
-            holdTimer: 0
+            rangeSelecting: false,
+            baseSelected: new Set(selectedSet)
           };
-          tapSession.holdTimer = window.setTimeout(() => {
-            if (!tapSession || tapSession.pointerId !== evt.pointerId) return;
-            const moveX = Math.abs(tapSession.lx - tapSession.x);
-            const moveY = Math.abs(tapSession.ly - tapSession.y);
-            if (moveX > 10 || moveY > 10) return;
-            tapSession.longPress = true;
-            paintPreviewRange(tapSession.baseSelected, tapSession.anchorId, tapSession.hoverId);
-            if (navigator.vibrate) navigator.vibrate(10);
-          }, 280);
         };
         handCards.onpointermove = (evt) => {
           if (evt.pointerType === "mouse") return;
           if (!tapSession || tapSession.pointerId !== evt.pointerId) return;
-          tapSession.lx = evt.clientX;
-          tapSession.ly = evt.clientY;
           const dx = Math.abs(evt.clientX - tapSession.x);
           const dy = Math.abs(evt.clientY - tapSession.y);
-          if (!tapSession.longPress) {
-            if (dx > 18 || dy > 18) {
-              if (tapSession.holdTimer) {
-                clearTimeout(tapSession.holdTimer);
-                tapSession.holdTimer = 0;
-              }
-            }
+          if (!tapSession.rangeSelecting) {
+            // Enter range-select only on clear horizontal drag to reduce accidental selection.
+            if (dx < 14 || dy > 24) return;
+            tapSession.rangeSelecting = true;
+            paintPreviewRange(tapSession.baseSelected, tapSession.anchorId, tapSession.hoverId);
+          }
+          if (!tapSession.rangeSelecting) {
             return;
           }
           const id = hitCardIdByX(evt.clientX);
@@ -3974,11 +3959,7 @@
         handCards.onpointerup = (evt) => {
           if (evt.pointerType === "mouse") return;
           if (!tapSession || tapSession.pointerId !== evt.pointerId) return;
-          if (tapSession.holdTimer) {
-            clearTimeout(tapSession.holdTimer);
-            tapSession.holdTimer = 0;
-          }
-          if (tapSession.longPress) {
+          if (tapSession.rangeSelecting) {
             const ids = idsInRange(tapSession.anchorId, tapSession.hoverId);
             let changed = false;
             ids.forEach((id) => {
@@ -4000,7 +3981,7 @@
           const dy = Math.abs(evt.clientY - tapSession.y);
           const dt = performance.now() - tapSession.at;
           tapSession = null;
-          if (dx > 16 || dy > 16 || dt > 500) return;
+          if (dx > 12 || dy > 12 || dt > 420) return;
           const id = hitCardIdByX(evt.clientX);
           if (!id) return;
           state.touchHandledUntil = Date.now() + 420;
@@ -4008,7 +3989,6 @@
           evt.preventDefault();
         };
         handCards.onpointercancel = () => {
-          if (tapSession?.holdTimer) clearTimeout(tapSession.holdTimer);
           paintSelectedFromSet(selectedSet);
           tapSession = null;
         };
