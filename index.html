@@ -4417,6 +4417,21 @@
         }
         return hitRanges[hitRanges.length - 1]?.id || "";
       };
+      const topCardIdAtPoint = (clientX, clientY) => {
+        if (typeof document.elementFromPoint !== "function") return "";
+        const el = document.elementFromPoint(clientX, clientY);
+        if (!el) return "";
+        const btn = el.closest?.("button[data-card]");
+        if (!btn || !handCards.contains(btn)) return "";
+        const id = btn.dataset.card || "";
+        return btnById.has(id) ? id : "";
+      };
+      const hitCardIdByPoint = (clientX, clientY) => {
+        // Prefer the top-most rendered card to avoid selecting cards under overlap.
+        const topId = topCardIdAtPoint(clientX, clientY);
+        if (topId) return topId;
+        return hitCardIdByX(clientX);
+      };
       const idsInRange = (startId, endId) => {
         const a = indexById.get(startId);
         const b = indexById.get(endId);
@@ -4468,7 +4483,7 @@
         handCards.onpointerdown = (evt) => {
           if (evt.pointerType === "mouse") return;
           if (evt.button != null && evt.button !== 0) return;
-          const anchorId = hitCardIdByX(evt.clientX);
+          const anchorId = hitCardIdByPoint(evt.clientX, evt.clientY);
           if (!anchorId) return;
           tapSession = {
             pointerId: evt.pointerId,
@@ -4507,7 +4522,7 @@
             paintPreviewRange(tapSession);
           }
           if (tapSession.mode !== "range") return;
-          const id = hitCardIdByX(evt.clientX);
+          const id = hitCardIdByPoint(evt.clientX, evt.clientY);
           if (id && id !== tapSession.hoverId) {
             tapSession.hoverId = id;
             paintPreviewRange(tapSession);
