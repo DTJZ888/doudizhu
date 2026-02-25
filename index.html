@@ -49,7 +49,7 @@
     }
     h1 { margin: 0; font-size: 20px; }
     h2 { margin: 0 0 8px; font-size: 16px; }
-    input, button {
+    input, button, select {
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 8px 10px;
@@ -164,6 +164,16 @@
       border-radius: 10px;
       background: linear-gradient(180deg, #fffdf8 0%, #f8f1e3 100%);
     }
+    .rules-box {
+      border: 1px solid #decfb5;
+      border-radius: 10px;
+      background: linear-gradient(180deg, #fffdf8 0%, #f8f1e3 100%);
+      padding: 10px;
+      line-height: 1.55;
+      font-size: 13px;
+      color: #4f4436;
+      white-space: pre-wrap;
+    }
     .played-chip {
       display: flex;
       flex-direction: column;
@@ -218,7 +228,7 @@
         <h1>斗地主原型（Supabase，非 Google 依赖）</h1>
         <div id="authStatus" class="small">登录中...</div>
       </div>
-      <div class="hero-note">房间上限 9 人，支持 2-4 人对局。当前是原型规则：单牌比较，重点验证联机流程与手感。</div>
+      <div class="hero-note">房间上限 9 人，支持单人验证/2-4 人对局。当前重点是联机流程验证与规则体验。</div>
     </div>
 
     <div class="panel">
@@ -230,6 +240,7 @@
         <label>模式</label>
         <select id="gameModeSelect">
           <option value="classic_simple">经典原型</option>
+          <option value="solo_validate">单人验证</option>
           <option value="poker_a_4">4人扑克A</option>
         </select>
       </div>
@@ -280,17 +291,22 @@
       </div>
 
       <div class="panel">
-        <h2>事件日志</h2>
-        <ul id="eventLog" class="log small"></ul>
-      </div>
-
-      <div class="panel">
         <h2>出牌窗口</h2>
         <div class="played-zone">
           <div class="small">上一个玩家出的牌</div>
           <div id="playedNow" class="played-row"></div>
         </div>
       </div>
+
+      <div class="panel">
+        <h2>规则说明</h2>
+        <div id="rulesInfo" class="rules-box small"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>事件日志</h2>
+      <ul id="eventLog" class="log small"></ul>
     </div>
   </div>
 
@@ -307,7 +323,9 @@
     const TABLE_MIN_PLAYERS = 2;
     const TABLE_MAX_PLAYERS = 4;
     const TABLE_SEAT_COUNT = 4;
+    const TABLE_SEAT_MIN = 1;
     const MODE_CLASSIC = "classic_simple";
+    const MODE_SOLO_VALIDATE = "solo_validate";
     const MODE_POKER_A4 = "poker_a_4";
 
     const state = {
@@ -348,6 +366,7 @@
     const handCards = document.getElementById("handCards");
     const eventLog = document.getElementById("eventLog");
     const playedNow = document.getElementById("playedNow");
+    const rulesInfo = document.getElementById("rulesInfo");
 
     nicknameInput.value = state.nick;
     gameModeSelect.value = MODE_CLASSIC;
@@ -414,7 +433,7 @@
       : null;
 
     function buildSeatIndexes(seatCount = TABLE_SEAT_COUNT) {
-      const n = Math.max(TABLE_MIN_PLAYERS, Math.min(TABLE_SEAT_COUNT, Number(seatCount) || TABLE_SEAT_COUNT));
+      const n = Math.max(TABLE_SEAT_MIN, Math.min(TABLE_SEAT_COUNT, Number(seatCount) || TABLE_SEAT_COUNT));
       return Array.from({ length: n }, (_, i) => i);
     }
 
@@ -430,6 +449,7 @@
 
     function modeLabel(mode) {
       if (mode === MODE_POKER_A4) return "4人扑克A";
+      if (mode === MODE_SOLO_VALIDATE) return "单人验证";
       return "经典原型";
     }
 
@@ -437,15 +457,46 @@
       return roomLike?.state?.gameMode || roomLike?.gameMode || MODE_CLASSIC;
     }
 
+    function modeRulesText(mode) {
+      if (mode === MODE_SOLO_VALIDATE) {
+        return [
+          "单人验证模式",
+          "- 开局人数：1人",
+          "- 发牌：54张全部发给你（无底牌）",
+          "- 目标：本地快速验证出牌牌型和视觉，不需要等待他人",
+          "- 出牌：选择若干牌后点击“出所选牌”"
+        ].join("\n");
+      }
+      if (mode === MODE_POKER_A4) {
+        return [
+          "4人扑克A",
+          "- 开局人数：4人",
+          "- 允许牌型：单张、对子、三炸、四炸、顺子(>=3)、连对(>=3对)",
+          "- 点数顺序：4<5<6<7<8<9<10<J<Q<K<A<2<3<小王<大王",
+          "- 炸弹优先：双王>四炸>三炸；炸弹可压非炸弹",
+          "- 捕获：44可捕获三炸，444可捕获四炸，被捕获牌并入自己手牌",
+          "- 先出完手牌获胜"
+        ].join("\n");
+      }
+      return [
+        "经典原型",
+        "- 开局人数：2-4人",
+        "- 当前只验证单张比较流程",
+        "- 出牌：每次选择1张后点击“出所选牌”"
+      ].join("\n");
+    }
+
     function ensureRoomStateShape(work) {
       work.state = work.state || {};
       work.state.gameMode = work.state.gameMode || MODE_CLASSIC;
       work.state.members = work.state.members || {};
       work.state.seatCount = Math.max(
-        TABLE_MIN_PLAYERS,
+        TABLE_SEAT_MIN,
         Math.min(TABLE_SEAT_COUNT, Number(work.state.seatCount) || TABLE_SEAT_COUNT)
       );
-      if (work.state.gameMode === MODE_POKER_A4) {
+      if (work.state.gameMode === MODE_SOLO_VALIDATE) {
+        work.state.seatCount = 1;
+      } else if (work.state.gameMode === MODE_POKER_A4) {
         work.state.seatCount = 4;
       }
       work.state.seats = work.state.seats || {};
@@ -930,8 +981,12 @@
         showMsg("尚未登录，请稍后再试", true);
         return;
       }
-      const selectedMode = gameModeSelect.value === MODE_POKER_A4 ? MODE_POKER_A4 : MODE_CLASSIC;
-      const seatCount = selectedMode === MODE_POKER_A4 ? 4 : TABLE_SEAT_COUNT;
+      const selectedMode = gameModeSelect.value === MODE_POKER_A4
+        ? MODE_POKER_A4
+        : (gameModeSelect.value === MODE_SOLO_VALIDATE ? MODE_SOLO_VALIDATE : MODE_CLASSIC);
+      const seatCount = selectedMode === MODE_POKER_A4
+        ? 4
+        : (selectedMode === MODE_SOLO_VALIDATE ? 1 : TABLE_SEAT_COUNT);
 
       try {
         for (let i = 0; i < 8; i += 1) {
@@ -1196,7 +1251,9 @@
         if (room.host_uid !== state.uid || room.status !== "lobby") return false;
 
         activeSeats = activeSeatsFrom(room.state.seats, room.state.seatCount);
-        if (mode === MODE_POKER_A4) {
+        if (mode === MODE_SOLO_VALIDATE) {
+          if (activeSeats.length !== 1) return false;
+        } else if (mode === MODE_POKER_A4) {
           if (activeSeats.length !== 4) return false;
         } else if (activeSeats.length < TABLE_MIN_PLAYERS || activeSeats.length > TABLE_MAX_PLAYERS) {
           return false;
@@ -1205,7 +1262,7 @@
         seatUids = activeSeats.map((seat) => room.state.seats[String(seat)]);
         if (seatUids.some((uid) => !room.state.ready[uid])) return false;
 
-        const bottomCount = mode === MODE_POKER_A4 ? 2 : getBottomCardCount(activeSeats.length);
+        const bottomCount = mode === MODE_POKER_A4 ? 2 : (mode === MODE_SOLO_VALIDATE ? 0 : getBottomCardCount(activeSeats.length));
         const dealCount = deck.length - bottomCount;
         bottom = deck.slice(dealCount);
 
@@ -1222,21 +1279,21 @@
         const bidMap = Object.fromEntries(activeSeats.map((seat) => [String(seat), null]));
 
         const round = ((room.state.game && room.state.game.round) || 0) + 1;
-        room.status = mode === MODE_POKER_A4 ? "playing" : "bidding";
+        room.status = mode === MODE_CLASSIC ? "bidding" : "playing";
         room.state.game = {
           mode,
           round,
           activeSeats,
-          bid: mode === MODE_POKER_A4 ? null : {
+          bid: mode === MODE_CLASSIC ? {
             currentSeat: startSeat,
             acted: 0,
             bids: bidMap,
             highestBid: 0,
             highestSeat: null
-          },
-          landlordSeat: mode === MODE_POKER_A4 ? null : null,
+          } : null,
+          landlordSeat: null,
           bottomCards: bottom,
-          bottomClaimed: mode === MODE_POKER_A4,
+          bottomClaimed: mode !== MODE_CLASSIC,
           turnSeat: startSeat,
           trickLeaderSeat: startSeat,
           passNeed: Math.max(activeSeats.length - 1, 1),
@@ -1256,6 +1313,8 @@
         await Promise.all(seatUids.map((uid) => writeHand(uid, hands[uid])));
         if (mode === MODE_POKER_A4) {
           log("发牌完成，进入4人扑克A出牌阶段");
+        } else if (mode === MODE_SOLO_VALIDATE) {
+          log("发牌完成，进入单人验证出牌阶段");
         } else {
           log("发牌完成，进入叫分阶段");
         }
@@ -1316,7 +1375,7 @@
       if (!room || !state.roomId) return;
       if (room.hostUid !== state.uid) return;
       if (room.status !== "playing" || !room.game || room.game.bottomClaimed) return;
-      if (room.game.mode === MODE_POKER_A4) return;
+      if (room.game.mode === MODE_POKER_A4 || room.game.mode === MODE_SOLO_VALIDATE) return;
 
       const landlordSeat = room.game.landlordSeat;
       const landlordUid = room.seats?.[String(landlordSeat)];
@@ -1361,7 +1420,9 @@
 
       const mode = roomMode(state.room);
       const selectedCards = selectedIds.map((id) => state.hand[id]);
-      const analyzed = mode === MODE_POKER_A4 ? analyzePokerA(selectedCards) : analyzeClassic(selectedCards);
+      const analyzed = (mode === MODE_POKER_A4 || mode === MODE_SOLO_VALIDATE)
+        ? analyzePokerA(selectedCards)
+        : analyzeClassic(selectedCards);
       if (!analyzed.ok) {
         showMsg(analyzed.reason || "牌型无效", true);
         return;
@@ -1391,7 +1452,7 @@
           .filter((seat) => !!room.state.seats[String(seat)]);
         const lastPlay = room.state.game.lastPlay;
 
-        if (liveMode === MODE_POKER_A4) {
+        if (liveMode === MODE_POKER_A4 || liveMode === MODE_SOLO_VALIDATE) {
           const capture = canCaptureInPokerA(analyzed, lastPlay, liveSeats, mySeat);
           if (!capture && !canBeatPokerA(analyzed, lastPlay, mySeat)) return false;
 
@@ -1533,7 +1594,6 @@
     function renderRoomInfo() {
       if (!state.room) {
         gameModeSelect.disabled = false;
-        gameModeSelect.value = MODE_CLASSIC;
         roomInfo.innerHTML = "尚未加入房间";
         return;
       }
@@ -1542,7 +1602,9 @@
       const members = Object.entries(room.members || {}).sort((a, b) => (a[1].joinedAt || 0) - (b[1].joinedAt || 0));
       const seated = activeSeatsFrom(room.seats, room.seatCount).length;
       const mode = roomMode(room);
-      const startRange = mode === MODE_POKER_A4 ? "4" : `${TABLE_MIN_PLAYERS}-${TABLE_MAX_PLAYERS}`;
+      const startRange = mode === MODE_POKER_A4
+        ? "4"
+        : (mode === MODE_SOLO_VALIDATE ? "1" : `${TABLE_MIN_PLAYERS}-${TABLE_MAX_PLAYERS}`);
       gameModeSelect.value = room.gameMode || MODE_CLASSIC;
       gameModeSelect.disabled = true;
       roomInfo.innerHTML = `
@@ -1572,7 +1634,7 @@
       const game = room.game;
       const mode = roomMode(room);
 
-      if (room.status === "bidding" && mode !== MODE_POKER_A4) {
+      if (room.status === "bidding" && mode === MODE_CLASSIC) {
         const curUid = room.seats?.[String(game.bid.currentSeat)];
         const bids = game.bid.bids || {};
         const bidLabels = (game.activeSeats || []).map((seat) => `${seat + 1}号(${bids[String(seat)] ?? "-"})`).join(" / ");
@@ -1590,6 +1652,12 @@
         if (mode === MODE_POKER_A4) {
           gameInfo.innerHTML = `
             <div>阶段：4人扑克A出牌</div>
+            <div>当前：${escapeHtml(nameOf(turnUid))}</div>
+            <div>最近牌：${escapeHtml(last)}</div>
+          `;
+        } else if (mode === MODE_SOLO_VALIDATE) {
+          gameInfo.innerHTML = `
+            <div>阶段：单人验证出牌</div>
             <div>当前：${escapeHtml(nameOf(turnUid))}</div>
             <div>最近牌：${escapeHtml(last)}</div>
           `;
@@ -1663,7 +1731,9 @@
       const activeSeats = room ? activeSeatsFrom(room.seats, room.seatCount) : [];
       const seatOk = mode === MODE_POKER_A4
         ? activeSeats.length === 4
-        : (activeSeats.length >= TABLE_MIN_PLAYERS && activeSeats.length <= TABLE_MAX_PLAYERS);
+        : (mode === MODE_SOLO_VALIDATE
+          ? activeSeats.length === 1
+          : (activeSeats.length >= TABLE_MIN_PLAYERS && activeSeats.length <= TABLE_MAX_PLAYERS));
       const readyOk = seatOk && activeSeats.every((seat) => room.ready?.[room.seats[String(seat)]]);
       startBtn.disabled = !(room && isHost && room.status === "lobby" && readyOk);
       hostTakeoverBtn.disabled = !(room && room.members && !room.members[room.hostUid] && room.members[state.uid]);
@@ -1690,7 +1760,7 @@
         return;
       }
 
-      const who = escapeHtml(nameOf(last.uid));
+      const who = escapeHtml(last.uid === state.uid ? "你" : nameOf(last.uid));
       playedNow.innerHTML = cards.map((card) => {
         const src = cardImageUrl(card);
         const alt = escapeHtml(cardPrettyName(card));
@@ -1703,12 +1773,18 @@
       }).join("");
     }
 
+    function renderRulesInfo() {
+      const mode = state.room ? roomMode(state.room) : (gameModeSelect.value || MODE_CLASSIC);
+      rulesInfo.textContent = modeRulesText(mode);
+    }
+
     function render() {
       renderRoomInfo();
       renderSeats();
       renderGame();
       renderHand();
       renderPlayedWindow();
+      renderRulesInfo();
       renderButtons();
     }
 
@@ -1771,6 +1847,10 @@
         });
       }
       log(`昵称已更新为 ${nextNick}`);
+    });
+
+    gameModeSelect.addEventListener("change", () => {
+      if (!state.room) renderRulesInfo();
     });
 
     createRoomBtn.addEventListener("click", async () => {
