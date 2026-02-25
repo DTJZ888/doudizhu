@@ -731,7 +731,7 @@
         </div>
         <div id="handSection" style="margin-top: 8px;">
           <div class="small">你的手牌</div>
-          <div class="small muted">点选手牌进行选择；手机端横向滑动可连选，抬手提交。</div>
+          <div class="small muted">点选每次只选 1 张（再点可取消）；手机端横向滑动可连选，抬手提交。</div>
           <div id="handCards"></div>
           <div id="handScrollWrap" class="hand-scroll-wrap">
             <input id="handScrollBar" type="range" min="0" max="0" step="1" value="0" aria-label="手牌滚动条" />
@@ -3890,9 +3890,19 @@
         return true;
       };
 
-      const toggleOneCard = (id) => {
+      const selectSingleByTap = (id) => {
         if (!id) return;
-        const changed = setSelected(id, !selectedSet.has(id));
+        let changed = false;
+        const onlyThisSelected = selectedSet.size === 1 && selectedSet.has(id);
+        Array.from(selectedSet).forEach((sid) => {
+          if (sid === id) return;
+          changed = setSelected(sid, false) || changed;
+        });
+        if (onlyThisSelected) {
+          changed = setSelected(id, false) || changed;
+        } else {
+          changed = setSelected(id, true) || changed;
+        }
         if (!changed) return;
         flushSelectedState();
         persistSelectedCards();
@@ -3904,7 +3914,7 @@
           if (!canPlay) return;
           if (Date.now() < state.touchHandledUntil) return;
           const id = btn.dataset.card || "";
-          toggleOneCard(id);
+          selectSingleByTap(id);
         });
       });
 
@@ -4015,12 +4025,12 @@
           const dx = Math.abs(evt.clientX - tapSession.x);
           const dy = Math.abs(evt.clientY - tapSession.y);
           const dt = performance.now() - tapSession.at;
+          const anchorId = tapSession.anchorId;
           tapSession = null;
           if (dx > 12 || dy > 12 || dt > 420) return;
-          const id = hitCardIdByX(evt.clientX);
-          if (!id) return;
+          if (!anchorId) return;
           state.touchHandledUntil = Date.now() + 420;
-          toggleOneCard(id);
+          selectSingleByTap(anchorId);
           evt.preventDefault();
         };
         handCards.onpointercancel = () => {
