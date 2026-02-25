@@ -666,6 +666,7 @@
     body.landscape-ui.in-match .grid {
       display: flex;
       flex-direction: column;
+      align-items: stretch;
       gap: 0;
       padding: 8px;
       border: 1px solid #ccb78f;
@@ -681,6 +682,7 @@
     body.landscape-ui.in-match #roomSeatPanel,
     body.landscape-ui.in-match #playedPanel,
     body.landscape-ui.in-match #gamePanel {
+      width: 100%;
       border: 0;
       border-radius: 0;
       background: transparent;
@@ -724,6 +726,9 @@
     }
     body.landscape-ui.in-match #handSection {
       margin-top: auto !important;
+    }
+    body.landscape-ui.in-match .seats.table-view {
+      width: 100%;
     }
     @media (max-width: 980px) {
       body.landscape-ui .grid { grid-template-columns: 1fr; }
