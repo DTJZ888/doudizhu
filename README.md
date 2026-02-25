@@ -32,6 +32,9 @@
 - `private_hands`
 - RLS 策略
 - Realtime 发布表
+- 原子提交函数 `ddz_apply_room_and_hand`（用于回合动作一致性）
+
+> 若你是旧项目升级，请重新执行一次 `supabase.schema.sql`，以确保新函数已创建。
 
 ## 4. 填写前端配置
 

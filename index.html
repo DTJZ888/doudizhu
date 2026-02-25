@@ -778,6 +778,7 @@
       if (raw.includes("NetworkError") || raw.includes("Failed to fetch")) return "网络异常，无法连接 Supabase";
       if (raw.includes("permission") || raw.includes("policy")) return "数据库权限不足（请检查 RLS 策略）";
       if (raw.includes("42P01")) return "数据表不存在（请执行最新 supabase.schema.sql）";
+      if (raw.includes("PGRST202") || raw.includes("ddz_apply_room_and_hand")) return "数据库未升级：请执行最新 supabase.schema.sql";
       if (raw.includes("22P02")) return "数据格式错误（可能是旧房间中的 AI 标识未迁移）";
       if (raw.includes("23505")) return "房间码冲突，请重试";
       return code || msg || "未知错误";
@@ -1484,6 +1485,97 @@
 
         if (upErr) throw upErr;
         if (updated && updated.length === 1) return { committed: true };
+      }
+
+      return { committed: false, reason: "conflict" };
+    }
+
+    function atomicReasonText(reason) {
+      if (!reason) return "未知失败";
+      if (reason === "rpc_missing") return "数据库未升级：缺少 ddz_apply_room_and_hand（请执行最新 supabase.schema.sql）";
+      if (reason === "unauthenticated") return "登录状态失效，请刷新页面重试";
+      if (reason === "not_found") return "房间不存在";
+      if (reason === "conflict") return "并发冲突，请重试";
+      if (reason === "status_not_playing") return "当前不在出牌阶段";
+      if (reason === "bottom_unclaimed") return "底牌流程未完成";
+      if (reason === "turn_mismatch") return "尚未轮到当前玩家";
+      if (reason === "seat_actor_mismatch") return "座位与行动玩家不一致";
+      if (reason === "actor_forbidden") return "无权代替该玩家行动";
+      if (reason === "actor_not_ai") return "仅允许房主代替AI行动";
+      if (reason === "rejected") return "校验未通过";
+      return String(reason);
+    }
+
+    async function applyRoomAndHandAtomic(payload) {
+      const { data, error } = await supabase.rpc("ddz_apply_room_and_hand", payload);
+      if (error) {
+        const code = String(error.code || "");
+        const msg = String(error.message || "");
+        if (code === "PGRST202" || msg.includes("ddz_apply_room_and_hand")) {
+          return { committed: false, reason: "rpc_missing", newRevision: null };
+        }
+        throw error;
+      }
+
+      const row = Array.isArray(data) ? data[0] : data;
+      return {
+        committed: !!row?.committed,
+        reason: row?.reason || (row?.committed ? "ok" : "rejected"),
+        newRevision: row?.new_revision ?? null
+      };
+    }
+
+    async function mutateRoomAndHandAtomic(rid, options, mutator, retries = 8) {
+      if (!supabase || !rid) return { committed: false, reason: "bad_request" };
+      const cfg = options || {};
+
+      for (let i = 0; i < retries; i += 1) {
+        const { data: row, error: selErr } = await supabase
+          .from("rooms")
+          .select("*")
+          .eq("room_id", rid)
+          .maybeSingle();
+        if (selErr) throw selErr;
+        if (!row) return { committed: false, reason: "not_found" };
+
+        const work = {
+          room_id: row.room_id,
+          host_uid: row.host_uid,
+          status: row.status,
+          max_members: row.max_members,
+          state: clone(row.state || {}),
+          revision: row.revision
+        };
+        ensureRoomStateShape(work);
+
+        const action = mutator(work);
+        if (action === false) return { committed: false, reason: "rejected" };
+
+        const handUid = action && typeof action === "object" && Object.hasOwn(action, "handUid")
+          ? action.handUid
+          : (cfg.handUid || null);
+        const handCards = action && typeof action === "object" && Object.hasOwn(action, "handCards")
+          ? action.handCards
+          : null;
+
+        const out = await applyRoomAndHandAtomic({
+          p_room_id: rid,
+          p_expect_revision: row.revision,
+          p_next_host_uid: work.host_uid,
+          p_next_status: work.status,
+          p_next_max_members: work.max_members,
+          p_next_state: work.state,
+          p_actor_uid: cfg.actorUid || null,
+          p_actor_seat: Number.isInteger(cfg.actorSeat) ? cfg.actorSeat : null,
+          p_require_playing: !!cfg.requirePlaying,
+          p_require_bottom_claimed: !!cfg.requireBottomClaimed,
+          p_hand_uid: handUid,
+          p_hand_cards: handCards
+        });
+
+        if (out.committed) return { committed: true };
+        if (out.reason === "conflict") continue;
+        return { committed: false, reason: out.reason || "rejected" };
       }
 
       return { committed: false, reason: "conflict" };
@@ -2433,7 +2525,15 @@
     }
 
     async function aiPassTurn(actorUid, actorSeat) {
-      const tx = await mutateRoom(state.roomId, (room) => {
+      const tx = await mutateRoomAndHandAtomic(
+        state.roomId,
+        {
+          actorUid,
+          actorSeat,
+          requirePlaying: true,
+          requireBottomClaimed: true
+        },
+        (room) => {
         ensureRoomStateShape(room);
         if (room.status !== "playing" || !room.state.game || !room.state.game.bottomClaimed) return false;
         if (room.state.game.turnSeat !== actorSeat) return false;
@@ -2459,14 +2559,20 @@
     }
 
     async function aiPlayTurn(actorUid, actorSeat, analyzed, handMap) {
-      const beforeHand = clone(handMap || {});
-      const nextHand = clone(beforeHand);
+      const nextHand = clone(handMap || {});
       for (const card of analyzed.cards || []) delete nextHand[card.id];
+      let finalHand = clone(nextHand);
 
-      await writeHand(actorUid, nextHand);
-      let capturedCards = [];
-
-      const tx = await mutateRoom(state.roomId, (room) => {
+      const tx = await mutateRoomAndHandAtomic(
+        state.roomId,
+        {
+          actorUid,
+          actorSeat,
+          requirePlaying: true,
+          requireBottomClaimed: true,
+          handUid: actorUid
+        },
+        (room) => {
         ensureRoomStateShape(room);
         if (room.status !== "playing" || !room.state.game || !room.state.game.bottomClaimed) return false;
         if (room.state.game.turnSeat !== actorSeat) return false;
@@ -2483,12 +2589,17 @@
           room.state.publicCounts[actorUid] = Math.max((room.state.publicCounts[actorUid] || 0) - analyzed.cards.length, 0);
           if (capture) {
             const rawCards = Array.isArray(lastPlay?.cards) ? lastPlay.cards : [lastPlay];
-            capturedCards = rawCards.map((x) => normalizeCard(x)).filter(Boolean);
+            const capturedCards = rawCards.map((x) => normalizeCard(x)).filter(Boolean);
             room.state.publicCounts[actorUid] += capturedCards.length;
+            finalHand = clone(nextHand);
+            for (const card of capturedCards) finalHand[card.id] = card;
+          } else {
+            finalHand = clone(nextHand);
           }
         } else {
           if (!canBeatClassic(analyzed, lastPlay, actorSeat)) return false;
           room.state.publicCounts[actorUid] = Math.max((room.state.publicCounts[actorUid] || 0) - 1, 0);
+          finalHand = clone(nextHand);
         }
 
         const labels = analyzed.cards.map((c) => c.label || cardPrettyName(c)).join(" ");
@@ -2511,17 +2622,11 @@
         room.state.game.passStreak = 0;
         room.state.game.undo = null;
         finalizeAfterPlay(room, liveMode, liveSeats, actorSeat, actorUid);
+        return { handCards: finalHand };
       });
 
       if (!tx.committed) {
-        await writeHand(actorUid, beforeHand);
         return false;
-      }
-
-      if (capturedCards.length) {
-        const merged = clone(nextHand);
-        for (const card of capturedCards) merged[card.id] = card;
-        await writeHand(actorUid, merged);
       }
       return true;
     }
@@ -2665,16 +2770,24 @@
 
       const nextHand = clone(state.hand);
       for (const id of selectedIds) delete nextHand[id];
-
-      try {
-        await writeHand(state.uid, nextHand);
-      } catch (err) {
-        showMsg(`手牌更新失败：${friendlyErr(err)}`, true);
+      let finalHand = clone(nextHand);
+      const mySeat = getMySeat(state.room);
+      if (mySeat === null) {
+        showMsg("你尚未入座，无法出牌", true);
         return;
       }
-
-      let capturedCards = [];
-      const roomTx = await mutateRoom(state.roomId, (room) => {
+      let roomTx;
+      try {
+        roomTx = await mutateRoomAndHandAtomic(
+          state.roomId,
+          {
+            actorUid: state.uid,
+            actorSeat: mySeat,
+            requirePlaying: true,
+            requireBottomClaimed: true,
+            handUid: state.uid
+          },
+          (room) => {
         ensureRoomStateShape(room);
         if (room.status !== "playing" || !room.state.game || !room.state.game.bottomClaimed) return false;
 
@@ -2683,8 +2796,8 @@
         const prevGame = clone(room.state.game || {});
         delete prevGame.undo;
 
-        const mySeat = getMySeat(mapRoomRow(room));
-        if (mySeat === null || room.state.game.turnSeat !== mySeat) return false;
+        const liveSeat = getMySeat(mapRoomRow(room));
+        if (liveSeat === null || room.state.game.turnSeat !== liveSeat) return false;
         const liveMode = room.state.game.mode || room.state.gameMode || MODE_CLASSIC;
         if (liveMode !== mode) return false;
 
@@ -2694,25 +2807,30 @@
         let didCapture = false;
 
         if (liveMode === MODE_POKER_A4 || liveMode === MODE_POKER_A2 || liveMode === MODE_POKER_B4 || liveMode === MODE_SOLO_VALIDATE) {
-          const capture = canCaptureInPokerA(analyzed, lastPlay, liveSeats, mySeat);
-          if (!capture && !canBeatPokerA(analyzed, lastPlay, mySeat)) return false;
+          const capture = canCaptureInPokerA(analyzed, lastPlay, liveSeats, liveSeat);
+          if (!capture && !canBeatPokerA(analyzed, lastPlay, liveSeat)) return false;
 
           room.state.publicCounts[state.uid] = Math.max((room.state.publicCounts[state.uid] || 0) - analyzed.cards.length, 0);
 
           if (capture) {
             didCapture = true;
             const rawCards = Array.isArray(lastPlay?.cards) ? lastPlay.cards : [lastPlay];
-            capturedCards = rawCards.map((x) => normalizeCard(x)).filter(Boolean);
+            const capturedCards = rawCards.map((x) => normalizeCard(x)).filter(Boolean);
             room.state.publicCounts[state.uid] += capturedCards.length;
+            finalHand = clone(nextHand);
+            for (const card of capturedCards) finalHand[card.id] = card;
+          } else {
+            finalHand = clone(nextHand);
           }
         } else {
-          if (!canBeatClassic(analyzed, lastPlay, mySeat)) return false;
+          if (!canBeatClassic(analyzed, lastPlay, liveSeat)) return false;
           room.state.publicCounts[state.uid] = Math.max((room.state.publicCounts[state.uid] || 0) - 1, 0);
+          finalHand = clone(nextHand);
         }
 
         const labels = analyzed.cards.map((c) => c.label || cardPrettyName(c)).join(" ");
         const playRecord = {
-          seat: mySeat,
+          seat: liveSeat,
           uid: state.uid,
           type: analyzed.type,
           length: analyzed.length,
@@ -2727,17 +2845,16 @@
         room.state.game.lastPlay = playRecord;
         appendPlayedHistory(room.state.game, playRecord);
         updateAiMemoryWithPlay(room.state.game, analyzed);
-        room.state.game.trickLeaderSeat = mySeat;
+        room.state.game.trickLeaderSeat = liveSeat;
         room.state.game.passStreak = 0;
 
         const bombRelated = isBombType(analyzed.type) || isBombType(lastPlay?.type) || didCapture;
         if (!bombRelated) {
-          const afterHand = clone(nextHand);
-          for (const card of capturedCards) afterHand[card.id] = card;
+          const afterHand = clone(finalHand);
           room.state.game.undo = {
             kind: "play",
             actorUid: state.uid,
-            actorSeat: mySeat,
+            actorSeat: liveSeat,
             beforeHand,
             afterHand,
             prevStatus,
@@ -2748,24 +2865,17 @@
           room.state.game.undo = null;
         }
 
-        finalizeAfterPlay(room, liveMode, liveSeats, mySeat, state.uid);
+        finalizeAfterPlay(room, liveMode, liveSeats, liveSeat, state.uid);
+        return { handCards: finalHand };
       });
-
-      if (!roomTx.committed) {
-        await writeHand(state.uid, beforeHand);
-        showMsg("出牌失败，已回滚手牌", true);
+      } catch (err) {
+        showMsg(`出牌失败：${friendlyErr(err)}`, true);
         return;
       }
 
-      let finalHand = clone(nextHand);
-      if (capturedCards.length) {
-        for (const card of capturedCards) finalHand[card.id] = card;
-        try {
-          await writeHand(state.uid, finalHand);
-        } catch (err) {
-          showMsg(`捕获牌写入失败：${friendlyErr(err)}`, true);
-          return;
-        }
+      if (!roomTx.committed) {
+        showMsg(`出牌失败：${atomicReasonText(roomTx.reason)}`, true);
+        return;
       }
 
       state.hand = finalHand;
@@ -2774,14 +2884,26 @@
 
     async function pass() {
       if (!state.roomId) return;
-      await mutateRoom(state.roomId, (room) => {
+      const mySeat = getMySeat(state.room);
+      if (mySeat === null) return;
+      let tx;
+      try {
+        tx = await mutateRoomAndHandAtomic(
+          state.roomId,
+          {
+            actorUid: state.uid,
+            actorSeat: mySeat,
+            requirePlaying: true,
+            requireBottomClaimed: true
+          },
+          (room) => {
         ensureRoomStateShape(room);
         if (room.status !== "playing" || !room.state.game || !room.state.game.bottomClaimed) return false;
 
-        const mySeat = getMySeat(mapRoomRow(room));
-        if (mySeat === null || room.state.game.turnSeat !== mySeat) return false;
+        const liveSeat = getMySeat(mapRoomRow(room));
+        if (liveSeat === null || room.state.game.turnSeat !== liveSeat) return false;
         if (!room.state.game.lastPlay) return false;
-        if (room.state.game.trickLeaderSeat === mySeat) return false;
+        if (room.state.game.trickLeaderSeat === liveSeat) return false;
 
         room.state.game.passStreak += 1;
         const liveSeats = (room.state.game.activeSeats || []).filter((seat) => !!room.state.seats[String(seat)]);
@@ -2792,11 +2914,19 @@
           room.state.game.lastPlay = null;
           room.state.game.passStreak = 0;
         } else {
-          room.state.game.turnSeat = nextSeat(liveSeats, mySeat);
+          room.state.game.turnSeat = nextSeat(liveSeats, liveSeat);
         }
         room.state.game.undo = null;
         room.state.game.updatedAt = Date.now();
       });
+      } catch (err) {
+        showMsg(`过牌失败：${friendlyErr(err)}`, true);
+        return;
+      }
+      if (!tx.committed) {
+        showMsg(`过牌失败：${atomicReasonText(tx.reason)}`, true);
+        return;
+      }
       state.selectedCardIds = [];
     }
 

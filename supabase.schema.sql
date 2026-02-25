@@ -153,6 +153,140 @@ with check (
   and char_length(nick) <= 24
 );
 
+-- 原子回合提交：在一次事务内更新房间状态和某个玩家手牌。
+-- 说明：这是“稳定性优先”的第一步，核心规则判定仍在前端，服务端先做关键身份/轮次校验。
+create or replace function public.ddz_apply_room_and_hand(
+  p_room_id text,
+  p_expect_revision bigint,
+  p_next_host_uid uuid,
+  p_next_status text,
+  p_next_max_members integer,
+  p_next_state jsonb,
+  p_actor_uid uuid default null,
+  p_actor_seat integer default null,
+  p_require_playing boolean default false,
+  p_require_bottom_claimed boolean default false,
+  p_hand_uid uuid default null,
+  p_hand_cards jsonb default null
+)
+returns table (
+  committed boolean,
+  reason text,
+  new_revision bigint
+)
+language plpgsql
+security invoker
+as $$
+declare
+  v_room public.rooms%rowtype;
+  v_turn_seat integer;
+  v_bottom_claimed boolean;
+  v_actor_is_ai boolean;
+begin
+  if auth.uid() is null then
+    return query select false, 'unauthenticated', null::bigint;
+    return;
+  end if;
+
+  select *
+    into v_room
+    from public.rooms
+   where room_id = p_room_id
+   for update;
+
+  if not found then
+    return query select false, 'not_found', null::bigint;
+    return;
+  end if;
+
+  if v_room.revision <> p_expect_revision then
+    return query select false, 'conflict', v_room.revision;
+    return;
+  end if;
+
+  if p_require_playing and v_room.status <> 'playing' then
+    return query select false, 'status_not_playing', v_room.revision;
+    return;
+  end if;
+
+  if p_require_bottom_claimed then
+    begin
+      v_bottom_claimed := coalesce((v_room.state->'game'->>'bottomClaimed')::boolean, false);
+    exception
+      when others then
+        v_bottom_claimed := false;
+    end;
+
+    if not v_bottom_claimed then
+      return query select false, 'bottom_unclaimed', v_room.revision;
+      return;
+    end if;
+  end if;
+
+  if p_actor_seat is not null then
+    begin
+      v_turn_seat := nullif(v_room.state->'game'->>'turnSeat', '')::integer;
+    exception
+      when others then
+        v_turn_seat := null;
+    end;
+
+    if v_turn_seat is distinct from p_actor_seat then
+      return query select false, 'turn_mismatch', v_room.revision;
+      return;
+    end if;
+
+    if coalesce(v_room.state->'seats'->>(p_actor_seat::text), '') <> coalesce(p_actor_uid::text, '') then
+      return query select false, 'seat_actor_mismatch', v_room.revision;
+      return;
+    end if;
+  end if;
+
+  if p_actor_uid is not null and p_actor_uid <> auth.uid() then
+    if v_room.host_uid <> auth.uid() then
+      return query select false, 'actor_forbidden', v_room.revision;
+      return;
+    end if;
+
+    begin
+      v_actor_is_ai := coalesce((v_room.state->'members'->(p_actor_uid::text)->>'isAi')::boolean, false);
+    exception
+      when others then
+        v_actor_is_ai := false;
+    end;
+
+    if not v_actor_is_ai then
+      return query select false, 'actor_not_ai', v_room.revision;
+      return;
+    end if;
+  end if;
+
+  update public.rooms
+     set host_uid = p_next_host_uid,
+         status = p_next_status,
+         max_members = p_next_max_members,
+         state = p_next_state,
+         revision = v_room.revision + 1,
+         updated_at = now()
+   where room_id = p_room_id;
+
+  if p_hand_uid is not null then
+    insert into public.private_hands (room_id, uid, cards, updated_at)
+    values (p_room_id, p_hand_uid, coalesce(p_hand_cards, '{}'::jsonb), now())
+    on conflict (room_id, uid)
+    do update
+      set cards = excluded.cards,
+          updated_at = now();
+  end if;
+
+  return query select true, 'ok', v_room.revision + 1;
+end;
+$$;
+
+grant execute on function public.ddz_apply_room_and_hand(
+  text, bigint, uuid, text, integer, jsonb, uuid, integer, boolean, boolean, uuid, jsonb
+) to authenticated;
+
 -- 实时订阅（可选，但建议打开）
 do $$
 begin
