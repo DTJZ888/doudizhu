@@ -1103,6 +1103,7 @@
       if (raw.includes("NetworkError") || raw.includes("Failed to fetch")) return "网络异常，无法连接 Supabase";
       if (raw.includes("permission") || raw.includes("policy")) return "数据库权限不足（请检查 RLS 策略）";
       if (raw.includes("42P01")) return "数据表不存在（请执行最新 supabase.schema.sql）";
+      if (raw.includes("42883")) return "数据库函数不存在或签名不匹配（请执行最新 supabase.schema.sql）";
       if (raw.includes("PGRST202") || raw.includes("ddz_apply_room_and_hand") || raw.includes("ddz_run_housekeeping")) {
         return "数据库未升级：请执行最新 supabase.schema.sql";
       }
@@ -1837,7 +1838,7 @@
       if (error) {
         const code = String(error.code || "");
         const msg = String(error.message || "");
-        if (code === "PGRST202" || msg.includes("ddz_apply_room_and_hand")) {
+        if (code === "PGRST202" || code === "42883" || msg.includes("ddz_apply_room_and_hand")) {
           return { committed: false, reason: "rpc_missing", newRevision: null };
         }
         throw error;
@@ -1923,7 +1924,7 @@
       if (error) {
         const code = String(error.code || "");
         const msg = String(error.message || "");
-        if (code === "PGRST202" || msg.includes("ddz_run_housekeeping")) {
+        if (code === "PGRST202" || code === "42883" || msg.includes("ddz_run_housekeeping")) {
           state.housekeepMissingRpc = true;
           log("提示：数据库尚未升级 housekeeping RPC（可忽略，但建议执行最新 schema）");
           return;
