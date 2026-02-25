@@ -664,10 +664,66 @@
     body.landscape-ui #handCards .card-btn { margin-left: -26px; }
     body.landscape-ui #handCards .card-btn:first-child { margin-left: 0; }
     body.landscape-ui.in-match .grid {
-      grid-template-columns: minmax(340px, 1fr) minmax(520px, 1.4fr);
-      grid-template-areas:
-        "game played"
-        "room rules";
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      padding: 8px;
+      border: 1px solid #ccb78f;
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(255, 251, 243, .97) 0%, rgba(248, 239, 223, .95) 100%);
+      box-shadow: 0 16px 30px rgba(63, 44, 18, .18);
+    }
+    body.landscape-ui.in-match #headerPanel,
+    body.landscape-ui.in-match #lobbyPanel,
+    body.landscape-ui.in-match #rulesPanel {
+      display: none;
+    }
+    body.landscape-ui.in-match #roomSeatPanel,
+    body.landscape-ui.in-match #playedPanel,
+    body.landscape-ui.in-match #gamePanel {
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+      padding: 10px 8px;
+    }
+    body.landscape-ui.in-match #roomSeatPanel {
+      order: 1;
+      border-bottom: 1px solid rgba(183, 156, 106, .36);
+      min-height: 260px;
+    }
+    body.landscape-ui.in-match #playedPanel {
+      order: 2;
+      border-bottom: 1px solid rgba(183, 156, 106, .32);
+      min-height: 170px;
+      max-height: 240px;
+    }
+    body.landscape-ui.in-match #gamePanel {
+      order: 3;
+      min-height: 230px;
+      display: flex;
+      flex-direction: column;
+    }
+    body.landscape-ui.in-match #roomSeatPanel h2,
+    body.landscape-ui.in-match #roomInfo,
+    body.landscape-ui.in-match #roomActions {
+      display: none;
+    }
+    body.landscape-ui.in-match #playedPanel h2,
+    body.landscape-ui.in-match #gamePanel h2 {
+      margin: 0 0 6px;
+      font-size: 13px;
+      color: #4f4435;
+    }
+    body.landscape-ui.in-match #playedNow {
+      min-height: 100px;
+      max-height: 165px;
+    }
+    body.landscape-ui.in-match #gameInfo {
+      margin-bottom: 6px;
+    }
+    body.landscape-ui.in-match #handSection {
+      margin-top: auto !important;
     }
     @media (max-width: 980px) {
       body.landscape-ui .grid { grid-template-columns: 1fr; }
@@ -702,47 +758,26 @@
         padding: 8px;
         gap: 8px;
       }
-      body.landscape-ui.in-match #lobbyPanel {
-        display: none;
-      }
-      body.landscape-ui.in-match #headerPanel {
-        display: none;
-      }
       body.landscape-ui.in-match .grid {
-        grid-template-columns: 1fr;
-        grid-template-areas:
-          "room"
-          "played"
-          "game";
-        gap: 8px;
-      }
-      body.landscape-ui.in-match #rulesPanel {
-        display: none;
+        padding: 6px;
+        border-radius: 12px;
       }
       body.landscape-ui.in-match #roomSeatPanel {
-        min-height: 30dvh;
-        padding: 8px;
-      }
-      body.landscape-ui.in-match #roomSeatPanel h2,
-      body.landscape-ui.in-match #roomInfo,
-      body.landscape-ui.in-match #roomActions {
-        display: none;
+        min-height: 32dvh;
+        padding: 6px;
       }
       body.landscape-ui.in-match #playedPanel {
-        min-height: 22dvh;
-        max-height: 28dvh;
+        min-height: 20dvh;
+        max-height: 25dvh;
+        padding: 6px;
       }
       body.landscape-ui.in-match #playedNow {
-        min-height: 14dvh;
-        max-height: 19dvh;
+        min-height: 12dvh;
+        max-height: 16dvh;
       }
       body.landscape-ui.in-match #gamePanel {
-        min-height: 40dvh;
-        display: flex;
-        flex-direction: column;
-      }
-      body.landscape-ui.in-match #handSection {
-        margin-top: auto !important;
+        min-height: 34dvh;
+        padding: 6px;
       }
       body.landscape-ui.in-match #handCards {
         min-height: 88px;
