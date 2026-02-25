@@ -337,6 +337,17 @@
       return cards;
     }
 
+    function friendlyErr(err) {
+      if (!err) return "未知错误";
+      const code = err.code ? String(err.code) : "";
+      if (code.includes("permission-denied")) return "无权限写入数据库（请检查 Realtime Database Rules）";
+      if (code.includes("network-request-failed")) return "网络异常，请稍后重试";
+      if (code.includes("operation-not-allowed")) return "匿名登录未开启（Authentication -> Anonymous）";
+      if (code.includes("unauthorized-domain")) return "当前域名未加入 Firebase 授权域名";
+      if (code.includes("invalid-api-key")) return "Firebase apiKey 无效";
+      return code || err.message || "未知错误";
+    }
+
     async function runRoomTx(mutator, rid = state.roomId) {
       if (!rid) return { committed: false };
       return runTransaction(roomRef(rid), (room) => {
@@ -349,65 +360,99 @@
     }
 
     async function createRoom() {
-      if (!state.uid || state.roomId) return;
-      for (let i = 0; i < 4; i += 1) {
-        const code = randRoomCode();
-        const result = await runTransaction(roomRef(code), (room) => {
-          if (room) return;
-          return {
-            createdAt: serverTimestamp(),
-            hostUid: state.uid,
-            maxMembers: 9,
-            status: "lobby",
-            members: {
-              [state.uid]: {
-                nick: state.nick,
-                joinedAt: Date.now()
-              }
-            },
-            seats: { 0: null, 1: null, 2: null },
-            ready: {},
-            publicCounts: {},
-            game: null
-          };
-        }, { applyLocally: false });
+      if (state.roomId) {
+        lobbyMsg.textContent = "请先离开当前房间";
+        return;
+      }
+      if (!state.uid) {
+        lobbyMsg.textContent = "尚未登录，请检查 Firebase 匿名登录配置";
+        return;
+      }
+      try {
+        for (let i = 0; i < 8; i += 1) {
+          const code = randRoomCode();
+          const result = await runTransaction(roomRef(code), (room) => {
+            if (room) return;
+            return {
+              createdAt: serverTimestamp(),
+              hostUid: state.uid,
+              maxMembers: 9,
+              status: "lobby",
+              members: {
+                [state.uid]: {
+                  nick: state.nick,
+                  joinedAt: Date.now()
+                }
+              },
+              seats: { 0: null, 1: null, 2: null },
+              ready: {},
+              publicCounts: {},
+              game: null
+            };
+          }, { applyLocally: false });
 
-        if (result.committed) {
-          await joinRoom(code, true);
+          if (!result.committed) continue;
+
+          state.roomId = code;
+          roomCodeInput.value = code;
+          roomCodeLabel.textContent = code;
+          history.replaceState({}, "", `${location.pathname}?room=${encodeURIComponent(code)}`);
+          attachRoomListeners();
+          await setupDisconnectHooks();
+          lobbyMsg.textContent = `已创建并加入房间 ${code}`;
+          log(`已创建房间 ${code}`);
           return;
         }
+        lobbyMsg.textContent = "创建失败：房间码冲突，请重试";
+      } catch (err) {
+        lobbyMsg.textContent = `创建失败：${friendlyErr(err)}`;
+        log(`创建房间异常：${friendlyErr(err)}`);
       }
-      lobbyMsg.textContent = "创建失败，请重试";
     }
 
     async function joinRoom(roomId, alreadyMember = false) {
-      if (!state.uid || state.roomId) return;
+      if (state.roomId) {
+        lobbyMsg.textContent = "请先离开当前房间";
+        return;
+      }
+      if (!state.uid) {
+        lobbyMsg.textContent = "尚未登录，请检查 Firebase 匿名登录配置";
+        return;
+      }
       const code = (roomId || "").trim().toUpperCase();
-      if (!code) return;
-
-      const result = await runRoomTx((room) => {
-        room.members = room.members || {};
-        const memberIds = Object.keys(room.members);
-        if (!alreadyMember && !room.members[state.uid] && memberIds.length >= 9) return false;
-        room.members[state.uid] = {
-          nick: state.nick,
-          joinedAt: room.members[state.uid]?.joinedAt || Date.now()
-        };
-      }, code);
-
-      if (!result.committed) {
-        lobbyMsg.textContent = "加入失败：房间不存在或已满（最多 9 人）";
+      if (!code) {
+        lobbyMsg.textContent = "请输入房间码";
         return;
       }
 
-      state.roomId = code;
-      roomCodeInput.value = code;
-      roomCodeLabel.textContent = code;
-      history.replaceState({}, "", `${location.pathname}?room=${encodeURIComponent(code)}`);
-      attachRoomListeners();
-      await setupDisconnectHooks();
-      lobbyMsg.textContent = "已加入房间";
-      log(`已进入房间 ${code}`);
+      try {
+        const result = await runRoomTx((room) => {
+          room.members = room.members || {};
+          const memberIds = Object.keys(room.members);
+          if (!alreadyMember && !room.members[state.uid] && memberIds.length >= 9) return false;
+          room.members[state.uid] = {
+            nick: state.nick,
+            joinedAt: room.members[state.uid]?.joinedAt || Date.now()
+          };
+        }, code);
+
+        if (!result.committed) {
+          lobbyMsg.textContent = "加入失败：房间不存在或已满（最多 9 人）";
+          return;
+        }
+
+        state.roomId = code;
+        roomCodeInput.value = code;
+        roomCodeLabel.textContent = code;
+        history.replaceState({}, "", `${location.pathname}?room=${encodeURIComponent(code)}`);
+        attachRoomListeners();
+        await setupDisconnectHooks();
+        lobbyMsg.textContent = "已加入房间";
+        log(`已进入房间 ${code}`);
+      } catch (err) {
+        lobbyMsg.textContent = `加入失败：${friendlyErr(err)}`;
+        log(`加入房间异常：${friendlyErr(err)}`);
+      }
     }
 
     async function setupDisconnectHooks() {
@@ -962,7 +1007,13 @@
         }
         authStatus.textContent = "匿名登录中...";
       });
-      await signInAnonymously(auth);
+      try {
+        await signInAnonymously(auth);
+      } catch (err) {
+        authStatus.textContent = `匿名登录失败：${friendlyErr(err)}`;
+        lobbyMsg.textContent = `请先修复登录：${friendlyErr(err)}`;
+        log(`匿名登录失败：${friendlyErr(err)}`);
+      }
     }
 
     saveNickBtn.addEventListener("click", async () => {
