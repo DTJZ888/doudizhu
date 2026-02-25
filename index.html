@@ -584,6 +584,41 @@
       body.landscape-ui #handCards .card-btn { margin-left: -20px; }
     }
     @media (hover: none) and (pointer: coarse) and (orientation: landscape) {
+      body.landscape-ui.in-match .wrap {
+        padding: 8px;
+        gap: 8px;
+      }
+      body.landscape-ui.in-match #lobbyPanel {
+        display: none;
+      }
+      body.landscape-ui.in-match .grid {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+          "played"
+          "game"
+          "room"
+          "rules";
+        gap: 8px;
+      }
+      body.landscape-ui.in-match #playedPanel {
+        min-height: 27dvh;
+        max-height: 34dvh;
+      }
+      body.landscape-ui.in-match #playedNow {
+        min-height: 18dvh;
+        max-height: 24dvh;
+      }
+      body.landscape-ui.in-match #gamePanel {
+        min-height: 52dvh;
+        display: flex;
+        flex-direction: column;
+      }
+      body.landscape-ui.in-match #handSection {
+        margin-top: auto !important;
+      }
+      body.landscape-ui.in-match #handCards {
+        min-height: 88px;
+      }
       .card-img {
         transition: transform .08s ease;
         box-shadow: 0 3px 8px rgba(44, 33, 18, .18);
@@ -622,7 +657,7 @@
   </div>
 
   <div class="wrap">
-    <div class="panel">
+    <div class="panel" id="headerPanel">
       <div class="row" style="justify-content: space-between;">
         <h1>不忘初心、牢记使命，必须发扬斗争精神</h1>
         <div id="authStatus" class="small">登录中...</div>
@@ -633,7 +668,7 @@
       </div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="lobbyPanel">
       <h2>大厅</h2>
       <div class="row">
         <label>昵称</label>
@@ -694,7 +729,7 @@
           <div id="teamCallHint" class="small"></div>
           <div id="teamCallOptions" class="row" style="margin-top: 6px;"></div>
         </div>
-        <div style="margin-top: 8px;">
+        <div id="handSection" style="margin-top: 8px;">
           <div class="small">你的手牌</div>
           <div class="small muted">点选手牌进行选择；手机端横向滑动可连选，抬手提交。</div>
           <div id="handCards"></div>
