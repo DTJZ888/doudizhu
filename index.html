@@ -26,6 +26,40 @@
         linear-gradient(160deg, #f6f2e8 0%, #efe7d8 100%);
       color: var(--ink);
     }
+    body.locked {
+      overflow: hidden;
+    }
+    .gate-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background:
+        radial-gradient(circle at 20% 15%, rgba(255, 247, 220, .72) 0, transparent 42%),
+        linear-gradient(165deg, rgba(43, 37, 29, .76), rgba(25, 21, 16, .92));
+      backdrop-filter: blur(4px);
+    }
+    .gate-card {
+      width: min(92vw, 420px);
+      background: #fffdf6;
+      border: 1px solid #d7c9aa;
+      border-radius: 14px;
+      box-shadow: 0 16px 36px rgba(15, 10, 6, .4);
+      padding: 16px;
+      display: grid;
+      gap: 10px;
+    }
+    .gate-title {
+      margin: 0;
+      font-size: 18px;
+    }
+    .gate-msg {
+      font-size: 12px;
+      color: #8f2b1f;
+      min-height: 18px;
+    }
     .wrap {
       max-width: 1100px;
       margin: 0 auto;
@@ -105,10 +139,12 @@
     }
     #handCards {
       display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
+      flex-wrap: nowrap;
       min-height: 112px;
       align-items: flex-end;
+      padding: 8px 8px 10px;
+      overflow-x: auto;
+      overflow-y: visible;
     }
     .card-btn {
       border: 0;
@@ -117,7 +153,12 @@
       min-width: auto;
       padding: 0;
       box-shadow: none;
+      margin-left: -38px;
+      position: relative;
+      z-index: 1;
+      flex: 0 0 auto;
     }
+    #handCards .card-btn:first-child { margin-left: 0; }
     .card-img {
       width: 72px;
       height: 104px;
@@ -131,6 +172,7 @@
       box-shadow: 0 12px 20px rgba(42, 33, 19, .24);
       filter: saturate(1.08);
     }
+    .card-btn:hover:not(:disabled) { z-index: 20; }
     .card-btn:disabled .card-img {
       filter: grayscale(.22) saturate(.74) brightness(.93);
       opacity: .8;
@@ -141,6 +183,7 @@
       box-shadow: 0 13px 20px rgba(42, 33, 19, .24);
       outline: 2px solid #c49028;
     }
+    .card-btn.selected { z-index: 30; }
     .red { color: #b61f1f; }
     .log {
       max-height: 180px;
@@ -217,11 +260,22 @@
       .wrap { padding: 12px; }
       .panel { padding: 12px; }
       .card-img { width: 62px; height: 90px; }
+      .card-btn { margin-left: -30px; }
       .played-card { width: 46px; height: 66px; }
     }
   </style>
 </head>
 <body>
+  <div id="gateOverlay" class="gate-overlay">
+    <div class="gate-card">
+      <h2 class="gate-title">访问验证</h2>
+      <div class="small">请输入访问码后进入游戏。</div>
+      <input id="gateInput" type="password" inputmode="numeric" placeholder="输入访问码" maxlength="12" />
+      <button id="gateBtn" class="primary">进入</button>
+      <div id="gateMsg" class="gate-msg"></div>
+    </div>
+  </div>
+
   <div class="wrap">
     <div class="panel">
       <div class="row" style="justify-content: space-between;">
@@ -241,6 +295,7 @@
         <select id="gameModeSelect">
           <option value="classic_simple">经典原型</option>
           <option value="solo_validate">单人验证</option>
+          <option value="poker_a_2">双人扑克A</option>
           <option value="poker_a_4">4人扑克A</option>
         </select>
       </div>
@@ -266,6 +321,8 @@
         <div class="row" style="margin-top: 8px;">
           <button id="toggleReadyBtn">准备</button>
           <button id="startBtn" class="primary">开始游戏</button>
+          <button id="undoBtn">悔牌</button>
+          <button id="restartBtn" class="warn">重开</button>
           <button id="hostTakeoverBtn">接管房主</button>
         </div>
       </div>
@@ -326,7 +383,9 @@
     const TABLE_SEAT_MIN = 1;
     const MODE_CLASSIC = "classic_simple";
     const MODE_SOLO_VALIDATE = "solo_validate";
+    const MODE_POKER_A2 = "poker_a_2";
     const MODE_POKER_A4 = "poker_a_4";
+    const GATE_CODE = "888888";
 
     const state = {
       uid: "",
@@ -343,6 +402,10 @@
     };
 
     const authStatus = document.getElementById("authStatus");
+    const gateOverlay = document.getElementById("gateOverlay");
+    const gateInput = document.getElementById("gateInput");
+    const gateBtn = document.getElementById("gateBtn");
+    const gateMsg = document.getElementById("gateMsg");
     const nicknameInput = document.getElementById("nicknameInput");
     const saveNickBtn = document.getElementById("saveNickBtn");
     const gameModeSelect = document.getElementById("gameModeSelect");
@@ -357,6 +420,8 @@
     const seatsWrap = document.getElementById("seatsWrap");
     const toggleReadyBtn = document.getElementById("toggleReadyBtn");
     const startBtn = document.getElementById("startBtn");
+    const undoBtn = document.getElementById("undoBtn");
+    const restartBtn = document.getElementById("restartBtn");
     const hostTakeoverBtn = document.getElementById("hostTakeoverBtn");
     const gameInfo = document.getElementById("gameInfo");
     const bidWrap = document.getElementById("bidWrap");
@@ -449,6 +514,7 @@
 
     function modeLabel(mode) {
       if (mode === MODE_POKER_A4) return "4人扑克A";
+      if (mode === MODE_POKER_A2) return "双人扑克A";
       if (mode === MODE_SOLO_VALIDATE) return "单人验证";
       return "经典原型";
     }
@@ -465,6 +531,16 @@
           "- 发牌：54张全部发给你（无底牌）",
           "- 目标：本地快速验证出牌牌型和视觉，不需要等待他人",
           "- 出牌：选择若干牌后点击“出所选牌”"
+        ].join("\n");
+      }
+      if (mode === MODE_POKER_A2) {
+        return [
+          "双人扑克A",
+          "- 开局人数：2人",
+          "- 先从54张中随机抽取10张，不参与本局",
+          "- 剩余44张平均发给双方（各22张）",
+          "- 牌型与比较规则与4人扑克A一致",
+          "- 先出完手牌获胜"
         ].join("\n");
       }
       if (mode === MODE_POKER_A4) {
@@ -496,6 +572,8 @@
       );
       if (work.state.gameMode === MODE_SOLO_VALIDATE) {
         work.state.seatCount = 1;
+      } else if (work.state.gameMode === MODE_POKER_A2) {
+        work.state.seatCount = 2;
       } else if (work.state.gameMode === MODE_POKER_A4) {
         work.state.seatCount = 4;
       }
@@ -617,7 +695,12 @@
     const POKER_A_STRAIGHT_VALUE = Object.fromEntries(POKER_A_STRAIGHT_ORDER.map((r, i) => [r, i + 1]));
 
     function getCardValue(card, mode) {
-      if (mode === MODE_POKER_A4) return POKER_A_VALUE[card.rank] || 0;
+      if (
+        mode === MODE_CLASSIC
+        || mode === MODE_SOLO_VALIDATE
+        || mode === MODE_POKER_A2
+        || mode === MODE_POKER_A4
+      ) return POKER_A_VALUE[card.rank] || 0;
       return card.power || 0;
     }
 
@@ -706,7 +789,7 @@
         }
       }
 
-      return { ok: false, reason: "不符合4人扑克A允许的牌型" };
+      return { ok: false, reason: "不符合扑克A允许的牌型" };
     }
 
     function analyzeClassic(cards) {
@@ -981,12 +1064,13 @@
         showMsg("尚未登录，请稍后再试", true);
         return;
       }
-      const selectedMode = gameModeSelect.value === MODE_POKER_A4
-        ? MODE_POKER_A4
-        : (gameModeSelect.value === MODE_SOLO_VALIDATE ? MODE_SOLO_VALIDATE : MODE_CLASSIC);
+      const selectedMode = [MODE_CLASSIC, MODE_SOLO_VALIDATE, MODE_POKER_A2, MODE_POKER_A4]
+        .includes(gameModeSelect.value)
+        ? gameModeSelect.value
+        : MODE_CLASSIC;
       const seatCount = selectedMode === MODE_POKER_A4
         ? 4
-        : (selectedMode === MODE_SOLO_VALIDATE ? 1 : TABLE_SEAT_COUNT);
+        : (selectedMode === MODE_POKER_A2 ? 2 : (selectedMode === MODE_SOLO_VALIDATE ? 1 : TABLE_SEAT_COUNT));
 
       try {
         for (let i = 0; i < 8; i += 1) {
@@ -1006,7 +1090,7 @@
               },
               gameMode: selectedMode,
               seatCount,
-              seats: { "0": null, "1": null, "2": null, "3": null },
+              seats: Object.fromEntries(buildSeatIndexes(seatCount).map((s) => [String(s), null])),
               ready: {},
               publicCounts: {},
               game: null
@@ -1245,6 +1329,7 @@
       let hands = null;
       const deck = shuffle(makeDeck());
       let bottom = [];
+      let openedCards = [];
 
       const tx = await mutateRoom(state.roomId, (room) => {
         ensureRoomStateShape(room);
@@ -1253,6 +1338,8 @@
         activeSeats = activeSeatsFrom(room.state.seats, room.state.seatCount);
         if (mode === MODE_SOLO_VALIDATE) {
           if (activeSeats.length !== 1) return false;
+        } else if (mode === MODE_POKER_A2) {
+          if (activeSeats.length !== 2) return false;
         } else if (mode === MODE_POKER_A4) {
           if (activeSeats.length !== 4) return false;
         } else if (activeSeats.length < TABLE_MIN_PLAYERS || activeSeats.length > TABLE_MAX_PLAYERS) {
@@ -1262,20 +1349,28 @@
         seatUids = activeSeats.map((seat) => room.state.seats[String(seat)]);
         if (seatUids.some((uid) => !room.state.ready[uid])) return false;
 
-        const bottomCount = mode === MODE_POKER_A4 ? 2 : (mode === MODE_SOLO_VALIDATE ? 0 : getBottomCardCount(activeSeats.length));
-        const dealCount = deck.length - bottomCount;
-        bottom = deck.slice(dealCount);
+        let dealPool = deck;
+        if (mode === MODE_POKER_A2) {
+          openedCards = deck.slice(0, 10);
+          dealPool = deck.slice(10);
+          bottom = [];
+        } else {
+          const bottomCount = mode === MODE_POKER_A4 ? 2 : (mode === MODE_SOLO_VALIDATE ? 0 : getBottomCardCount(activeSeats.length));
+          const dealCount = deck.length - bottomCount;
+          bottom = deck.slice(dealCount);
+          dealPool = deck.slice(0, dealCount);
+        }
 
         hands = Object.fromEntries(seatUids.map((uid) => [uid, {}]));
         room.state.publicCounts = Object.fromEntries(seatUids.map((uid) => [uid, 0]));
 
-        for (let i = 0; i < dealCount; i += 1) {
+        for (let i = 0; i < dealPool.length; i += 1) {
           const uid = seatUids[i % seatUids.length];
-          hands[uid][deck[i].id] = deck[i];
+          hands[uid][dealPool[i].id] = dealPool[i];
           room.state.publicCounts[uid] += 1;
         }
 
-        const startSeat = activeSeats[0];
+        const startSeat = activeSeats[Math.floor(Math.random() * activeSeats.length)] || activeSeats[0];
         const bidMap = Object.fromEntries(activeSeats.map((seat) => [String(seat), null]));
 
         const round = ((room.state.game && room.state.game.round) || 0) + 1;
@@ -1293,12 +1388,14 @@
           } : null,
           landlordSeat: null,
           bottomCards: bottom,
+          openedCards,
           bottomClaimed: mode !== MODE_CLASSIC,
           turnSeat: startSeat,
           trickLeaderSeat: startSeat,
           passNeed: Math.max(activeSeats.length - 1, 1),
           passStreak: 0,
           lastPlay: null,
+          undo: null,
           winnerSeat: null,
           updatedAt: Date.now()
         };
@@ -1313,6 +1410,8 @@
         await Promise.all(seatUids.map((uid) => writeHand(uid, hands[uid])));
         if (mode === MODE_POKER_A4) {
           log("发牌完成，进入4人扑克A出牌阶段");
+        } else if (mode === MODE_POKER_A2) {
+          log("发牌完成，进入双人扑克A出牌阶段（已随机抽离10张）");
         } else if (mode === MODE_SOLO_VALIDATE) {
           log("发牌完成，进入单人验证出牌阶段");
         } else {
@@ -1331,7 +1430,7 @@
       await mutateRoom(state.roomId, (room) => {
         ensureRoomStateShape(room);
         if (room.status !== "bidding" || !room.state.game || !room.state.game.bid) return false;
-        if ((room.state.game.mode || room.state.gameMode) === MODE_POKER_A4) return false;
+        if ((room.state.game.mode || room.state.gameMode) !== MODE_CLASSIC) return false;
 
         const mySeat = getMySeat(mapRoomRow(room));
         if (mySeat === null) return false;
@@ -1375,7 +1474,7 @@
       if (!room || !state.roomId) return;
       if (room.hostUid !== state.uid) return;
       if (room.status !== "playing" || !room.game || room.game.bottomClaimed) return;
-      if (room.game.mode === MODE_POKER_A4 || room.game.mode === MODE_SOLO_VALIDATE) return;
+      if (room.game.mode === MODE_POKER_A4 || room.game.mode === MODE_POKER_A2 || room.game.mode === MODE_SOLO_VALIDATE) return;
 
       const landlordSeat = room.game.landlordSeat;
       const landlordUid = room.seats?.[String(landlordSeat)];
@@ -1412,6 +1511,7 @@
 
     async function playSelected() {
       if (!state.roomId || !state.room) return;
+      const beforeHand = clone(state.hand || {});
       const selectedIds = [...new Set(state.selectedCardIds)].filter((id) => !!state.hand?.[id]);
       if (!selectedIds.length) {
         showMsg("请先选择要出的牌", true);
@@ -1420,7 +1520,7 @@
 
       const mode = roomMode(state.room);
       const selectedCards = selectedIds.map((id) => state.hand[id]);
-      const analyzed = (mode === MODE_POKER_A4 || mode === MODE_SOLO_VALIDATE)
+      const analyzed = (mode === MODE_POKER_A4 || mode === MODE_POKER_A2 || mode === MODE_SOLO_VALIDATE)
         ? analyzePokerA(selectedCards)
         : analyzeClassic(selectedCards);
       if (!analyzed.ok) {
@@ -1443,6 +1543,11 @@
         ensureRoomStateShape(room);
         if (room.status !== "playing" || !room.state.game || !room.state.game.bottomClaimed) return false;
 
+        const prevStatus = room.status;
+        const prevPublicCounts = clone(room.state.publicCounts || {});
+        const prevGame = clone(room.state.game || {});
+        delete prevGame.undo;
+
         const mySeat = getMySeat(mapRoomRow(room));
         if (mySeat === null || room.state.game.turnSeat !== mySeat) return false;
         const liveMode = room.state.game.mode || room.state.gameMode || MODE_CLASSIC;
@@ -1452,7 +1557,7 @@
           .filter((seat) => !!room.state.seats[String(seat)]);
         const lastPlay = room.state.game.lastPlay;
 
-        if (liveMode === MODE_POKER_A4 || liveMode === MODE_SOLO_VALIDATE) {
+        if (liveMode === MODE_POKER_A4 || liveMode === MODE_POKER_A2 || liveMode === MODE_SOLO_VALIDATE) {
           const capture = canCaptureInPokerA(analyzed, lastPlay, liveSeats, mySeat);
           if (!capture && !canBeatPokerA(analyzed, lastPlay, mySeat)) return false;
 
@@ -1486,6 +1591,19 @@
         room.state.game.trickLeaderSeat = mySeat;
         room.state.game.passStreak = 0;
 
+        const afterHand = clone(nextHand);
+        for (const card of capturedCards) afterHand[card.id] = card;
+        room.state.game.undo = {
+          kind: "play",
+          actorUid: state.uid,
+          actorSeat: mySeat,
+          beforeHand,
+          afterHand,
+          prevStatus,
+          prevPublicCounts,
+          prevGame
+        };
+
         if (room.state.publicCounts[state.uid] === 0) {
           room.status = "finished";
           room.state.game.winnerSeat = mySeat;
@@ -1498,19 +1616,23 @@
       });
 
       if (!roomTx.committed) {
-        const rollback = clone(nextHand);
-        for (const card of analyzed.cards) rollback[card.id] = card;
-        await writeHand(state.uid, rollback);
+        await writeHand(state.uid, beforeHand);
         showMsg("出牌失败，已回滚手牌", true);
         return;
       }
 
+      let finalHand = clone(nextHand);
       if (capturedCards.length) {
-        const merged = clone(nextHand);
-        for (const card of capturedCards) merged[card.id] = card;
-        await writeHand(state.uid, merged);
+        for (const card of capturedCards) finalHand[card.id] = card;
+        try {
+          await writeHand(state.uid, finalHand);
+        } catch (err) {
+          showMsg(`捕获牌写入失败：${friendlyErr(err)}`, true);
+          return;
+        }
       }
 
+      state.hand = finalHand;
       state.selectedCardIds = [];
     }
 
@@ -1536,9 +1658,85 @@
         } else {
           room.state.game.turnSeat = nextSeat(liveSeats, mySeat);
         }
+        room.state.game.undo = null;
         room.state.game.updatedAt = Date.now();
       });
       state.selectedCardIds = [];
+    }
+
+    async function undoLastPlay() {
+      if (!state.roomId || !state.room) return;
+      let snapshot = null;
+
+      const tx = await mutateRoom(state.roomId, (room) => {
+        ensureRoomStateShape(room);
+        if ((room.status !== "playing" && room.status !== "finished") || !room.state.game || !room.state.game.undo) return false;
+        const undo = room.state.game.undo;
+        if (undo.kind !== "play" || undo.actorUid !== state.uid) return false;
+
+        snapshot = clone(undo);
+        room.status = undo.prevStatus || "playing";
+        room.state.publicCounts = clone(undo.prevPublicCounts || room.state.publicCounts || {});
+        room.state.game = clone(undo.prevGame || room.state.game);
+        room.state.game.undo = null;
+        room.state.game.updatedAt = Date.now();
+      });
+
+      if (!tx.committed || !snapshot) {
+        showMsg("悔牌失败：当前不可悔牌", true);
+        return;
+      }
+
+      try {
+        await writeHand(state.uid, snapshot.beforeHand || {});
+      } catch (err) {
+        showMsg(`悔牌后手牌恢复失败：${friendlyErr(err)}`, true);
+        return;
+      }
+
+      state.hand = clone(snapshot.beforeHand || {});
+      state.selectedCardIds = [];
+      showMsg("已悔牌");
+      log("执行悔牌，已回到上一步出牌前状态");
+      render();
+    }
+
+    async function restartGame() {
+      if (!state.roomId || !state.room) return;
+      if (state.room.hostUid !== state.uid) {
+        showMsg("仅房主可重开", true);
+        return;
+      }
+
+      const tx = await mutateRoom(state.roomId, (room) => {
+        ensureRoomStateShape(room);
+        if (room.host_uid !== state.uid) return false;
+        room.status = "lobby";
+        room.state.ready = {};
+        room.state.publicCounts = {};
+        room.state.game = null;
+      });
+
+      if (!tx.committed) {
+        showMsg("重开失败，请重试", true);
+        return;
+      }
+
+      try {
+        await supabase
+          .from("private_hands")
+          .delete()
+          .eq("room_id", state.roomId);
+      } catch (err) {
+        showMsg(`清理手牌失败：${friendlyErr(err)}`, true);
+        return;
+      }
+
+      state.hand = {};
+      state.selectedCardIds = [];
+      showMsg("已重开，返回大厅");
+      log("房主执行重开，对局已重置");
+      render();
     }
 
     function nameOf(uid) {
@@ -1604,7 +1802,7 @@
       const mode = roomMode(room);
       const startRange = mode === MODE_POKER_A4
         ? "4"
-        : (mode === MODE_SOLO_VALIDATE ? "1" : `${TABLE_MIN_PLAYERS}-${TABLE_MAX_PLAYERS}`);
+        : (mode === MODE_POKER_A2 ? "2" : (mode === MODE_SOLO_VALIDATE ? "1" : `${TABLE_MIN_PLAYERS}-${TABLE_MAX_PLAYERS}`));
       gameModeSelect.value = room.gameMode || MODE_CLASSIC;
       gameModeSelect.disabled = true;
       roomInfo.innerHTML = `
@@ -1655,6 +1853,13 @@
             <div>当前：${escapeHtml(nameOf(turnUid))}</div>
             <div>最近牌：${escapeHtml(last)}</div>
           `;
+        } else if (mode === MODE_POKER_A2) {
+          gameInfo.innerHTML = `
+            <div>阶段：双人扑克A出牌</div>
+            <div>当前：${escapeHtml(nameOf(turnUid))}</div>
+            <div>最近牌：${escapeHtml(last)}</div>
+            <div>开牌：已随机抽离 ${(game.openedCards || []).length || 10} 张</div>
+          `;
         } else if (mode === MODE_SOLO_VALIDATE) {
           gameInfo.innerHTML = `
             <div>阶段：单人验证出牌</div>
@@ -1674,10 +1879,11 @@
         playActions.style.display = mySeat === game.turnSeat && game.bottomClaimed ? "flex" : "none";
       } else if (room.status === "finished") {
         const winnerUid = room.seats?.[String(game.winnerSeat)];
+        const range = mode === MODE_POKER_A4 ? "4" : (mode === MODE_POKER_A2 ? "2" : (mode === MODE_SOLO_VALIDATE ? "1" : `${TABLE_MIN_PLAYERS}-${TABLE_MAX_PLAYERS}`));
         gameInfo.innerHTML = `
           <div>阶段：已结束</div>
           <div>胜者：${escapeHtml(nameOf(winnerUid))}</div>
-          <div class="small">房主可重新开始（${TABLE_MIN_PLAYERS}-${TABLE_MAX_PLAYERS}人入座并准备）</div>
+          <div class="small">房主可重新开始（${range} 人入座并准备）</div>
         `;
         bidWrap.style.display = "none";
         playActions.style.display = "none";
@@ -1695,12 +1901,12 @@
         && state.room?.game?.bottomClaimed
         && getMySeat(state.room) === state.room?.game?.turnSeat;
 
-      handCards.innerHTML = cards.map((c) => {
+      handCards.innerHTML = cards.map((c, idx) => {
         const id = escapeHtml(c.id);
         const title = escapeHtml(cardPrettyName(c));
         const src = cardImageUrl(c);
         const selected = state.selectedCardIds.includes(c.id) ? "selected" : "";
-        return `<button class="card-btn ${selected}" data-card="${id}" title="${title}" ${canPlay ? "" : "disabled"}><img class="card-img" src="${src}" alt="${title}" /></button>`;
+        return `<button class="card-btn ${selected}" data-card="${id}" title="${title}" style="z-index:${idx + 1}" ${canPlay ? "" : "disabled"}><img class="card-img" src="${src}" alt="${title}" /></button>`;
       }).join("");
 
       handCards.querySelectorAll("button[data-card]").forEach((btn) => {
@@ -1731,14 +1937,18 @@
       const activeSeats = room ? activeSeatsFrom(room.seats, room.seatCount) : [];
       const seatOk = mode === MODE_POKER_A4
         ? activeSeats.length === 4
-        : (mode === MODE_SOLO_VALIDATE
+        : (mode === MODE_POKER_A2
+          ? activeSeats.length === 2
+          : (mode === MODE_SOLO_VALIDATE
           ? activeSeats.length === 1
-          : (activeSeats.length >= TABLE_MIN_PLAYERS && activeSeats.length <= TABLE_MAX_PLAYERS));
+          : (activeSeats.length >= TABLE_MIN_PLAYERS && activeSeats.length <= TABLE_MAX_PLAYERS)));
       const readyOk = seatOk && activeSeats.every((seat) => room.ready?.[room.seats[String(seat)]]);
       startBtn.disabled = !(room && isHost && room.status === "lobby" && readyOk);
       hostTakeoverBtn.disabled = !(room && room.members && !room.members[room.hostUid] && room.members[state.uid]);
       playSelectedBtn.disabled = !(room && room.status === "playing" && mySeat === room.game?.turnSeat && room.game?.bottomClaimed && state.selectedCardIds.length > 0);
       passBtn.disabled = !(room && room.status === "playing" && mySeat === room.game?.turnSeat && room.game?.lastPlay && room.game?.trickLeaderSeat !== mySeat);
+      undoBtn.disabled = !(room && (room.status === "playing" || room.status === "finished") && room.game?.undo && room.game.undo.actorUid === state.uid);
+      restartBtn.disabled = !(room && room.hostUid === state.uid);
     }
 
     function renderPlayedWindow() {
@@ -1786,6 +1996,34 @@
       renderPlayedWindow();
       renderRulesInfo();
       renderButtons();
+    }
+
+    let authInitStarted = false;
+    function unlockGateAndStart() {
+      document.body.classList.remove("locked");
+      gateOverlay.style.display = "none";
+      gateMsg.textContent = "";
+      if (!authInitStarted) {
+        authInitStarted = true;
+        initAuth();
+      }
+    }
+
+    function lockGate() {
+      document.body.classList.add("locked");
+      gateOverlay.style.display = "flex";
+      gateInput.value = "";
+      gateMsg.textContent = "";
+      setTimeout(() => gateInput.focus(), 0);
+    }
+
+    function submitGate() {
+      const code = gateInput.value.trim();
+      if (code !== GATE_CODE) {
+        gateMsg.textContent = "访问码错误，请重试。";
+        return;
+      }
+      unlockGateAndStart();
     }
 
     async function initAuth() {
@@ -1880,6 +2118,14 @@
       await startGame();
     });
 
+    undoBtn.addEventListener("click", async () => {
+      await undoLastPlay();
+    });
+
+    restartBtn.addEventListener("click", async () => {
+      await restartGame();
+    });
+
     hostTakeoverBtn.addEventListener("click", async () => {
       await takeHost();
     });
@@ -1898,6 +2144,11 @@
       await pass();
     });
 
+    gateBtn.addEventListener("click", submitGate);
+    gateInput.addEventListener("keydown", (evt) => {
+      if (evt.key === "Enter") submitGate();
+    });
+
     window.addEventListener("beforeunload", () => {
       if (state.pollTimer) clearInterval(state.pollTimer);
       for (const fn of state.roomUnsubs) fn();
@@ -1906,7 +2157,7 @@
 
     window.__ddzState = state;
     render();
-    initAuth();
+    lockGate();
   </script>
 </body>
 </html>
