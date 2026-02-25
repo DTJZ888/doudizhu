@@ -809,6 +809,18 @@
       return roomLike?.state?.gameMode || roomLike?.gameMode || MODE_CLASSIC;
     }
 
+    function playedWindowLimit(roomLike) {
+      const mode = roomMode(roomLike);
+      if (mode === MODE_SOLO_VALIDATE) return 1;
+      if (mode === MODE_POKER_A2) return 2;
+      if (mode === MODE_POKER_A4 || mode === MODE_POKER_B4) return 4;
+      const gameSeats = Array.isArray(roomLike?.game?.activeSeats)
+        ? roomLike.game.activeSeats.filter((seat) => !!roomLike?.seats?.[String(seat)]).length
+        : 0;
+      const seated = gameSeats || activeSeatsFrom(roomLike?.seats, roomLike?.seatCount).length;
+      return Math.max(1, seated || TABLE_MIN_PLAYERS);
+    }
+
     function aiHexFromSeed(seed) {
       let h1 = 2166136261 >>> 0;
       let h2 = 2246822519 >>> 0;
@@ -3131,15 +3143,22 @@
         return;
       }
 
-      playedNow.innerHTML = `${extra}${trickPlays.map((play, idx) => {
+      const limitN = playedWindowLimit(room);
+      const shownPlays = trickPlays.slice(-limitN);
+      const offset = trickPlays.length - shownPlays.length;
+      const tip = trickPlays.length > shownPlays.length
+        ? `<div class="small muted">本轮共 ${trickPlays.length} 手，仅显示最近 ${shownPlays.length} 手</div>`
+        : "";
+
+      playedNow.innerHTML = `${extra}${tip}${shownPlays.map((play, idx) => {
         const who = escapeHtml(play.uid === state.uid ? "你" : nameOf(play.uid));
         const cards = (Array.isArray(play.cards) ? play.cards : [play]).map((x) => normalizeCard(x)).filter(Boolean);
         if (!cards.length) {
-          return `<div class="small muted">第 ${idx + 1} 手：${who}（数据不可用）</div>`;
+          return `<div class="small muted">第 ${offset + idx + 1} 手：${who}（数据不可用）</div>`;
         }
         return `
           <div class="played-turn">
-            <div class="small">${idx + 1}. ${who}</div>
+            <div class="small">${offset + idx + 1}. ${who}</div>
             <div class="played-turn-cards">
               ${cards.map((card) => {
                 const src = cardImageUrl(card);
