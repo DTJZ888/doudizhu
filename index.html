@@ -216,6 +216,14 @@
       outline: 2px solid #c49028;
     }
     .card-btn.selected { z-index: 30; }
+    body.dragging-select .card-img {
+      transition: none;
+      box-shadow: 0 3px 8px rgba(44, 33, 18, .18);
+    }
+    body.dragging-select .card-btn.selected .card-img {
+      transform: translateY(-6px);
+      box-shadow: 0 7px 12px rgba(42, 33, 19, .2);
+    }
     .red { color: #b61f1f; }
     .log {
       max-height: 180px;
@@ -3829,14 +3837,27 @@
 
       const buttons = [...handCards.querySelectorAll("button[data-card]")];
       const btnById = new Map(buttons.map((btn) => [btn.dataset.card, btn]));
+      const selectedSet = new Set(
+        (Array.isArray(state.selectedCardIds) ? state.selectedCardIds : []).filter((id) => !!state.hand?.[id])
+      );
+      let selectedDirty = false;
+
+      const flushSelectedState = () => {
+        if (!selectedDirty) return false;
+        state.selectedCardIds = Array.from(selectedSet);
+        selectedDirty = false;
+        return true;
+      };
 
       const setSelected = (id, selected) => {
         if (!id || !state.hand?.[id]) return false;
-        const has = state.selectedCardIds.includes(id);
+        const has = selectedSet.has(id);
         if (selected && !has) {
-          state.selectedCardIds = [...state.selectedCardIds, id];
+          selectedSet.add(id);
+          selectedDirty = true;
         } else if (!selected && has) {
-          state.selectedCardIds = state.selectedCardIds.filter((x) => x !== id);
+          selectedSet.delete(id);
+          selectedDirty = true;
         } else {
           return false;
         }
@@ -3853,8 +3874,9 @@
             return;
           }
           const id = btn.dataset.card;
-          const changed = setSelected(id, !state.selectedCardIds.includes(id));
+          const changed = setSelected(id, !selectedSet.has(id));
           if (changed) {
+            flushSelectedState();
             persistSelectedCards();
             syncPlaySelectedButton(canPlay);
           }
@@ -3882,20 +3904,42 @@
         center: btn.offsetLeft + (btn.offsetWidth / 2)
       })).filter((v) => !!v.id);
 
-      const hitCardIdByX = (clientX) => {
-        if (!cardCenters.length) return "";
+      const hitCardIndexByX = (clientX) => {
+        if (!cardCenters.length) return -1;
         const rect = handCards.getBoundingClientRect();
         const x = (clientX - rect.left) + handCards.scrollLeft;
-        let bestId = cardCenters[0].id;
+        let bestIndex = 0;
         let bestDist = Math.abs(x - cardCenters[0].center);
         for (let i = 1; i < cardCenters.length; i += 1) {
           const d = Math.abs(x - cardCenters[i].center);
           if (d < bestDist) {
             bestDist = d;
-            bestId = cardCenters[i].id;
+            bestIndex = i;
           }
         }
-        return bestId;
+        return bestIndex;
+      };
+
+      const hitCardIdByX = (clientX) => {
+        const idx = hitCardIndexByX(clientX);
+        if (idx < 0) return "";
+        return cardCenters[idx]?.id || "";
+      };
+
+      const applyDragToIndex = (targetIndex) => {
+        const drag = state.dragSelectSession;
+        if (!drag || targetIndex < 0 || targetIndex >= cardCenters.length) return false;
+        const startIndex = Number.isInteger(drag.lastIndex) ? drag.lastIndex : targetIndex;
+        const from = Math.min(startIndex, targetIndex);
+        const to = Math.max(startIndex, targetIndex);
+        let changed = false;
+        for (let i = from; i <= to; i += 1) {
+          const id = cardCenters[i]?.id;
+          if (!id) continue;
+          changed = applyDragSelect(id) || changed;
+        }
+        drag.lastIndex = targetIndex;
+        return changed;
       };
 
       const edgeAutoScroll = (clientX) => {
@@ -3920,19 +3964,24 @@
       handCards.onpointerdown = (evt) => {
         if (!canPlay) return;
         if (evt.pointerType === "mouse") return;
-        const btn = evt.target?.closest?.("button[data-card]");
-        if (!btn?.dataset?.card) return;
-
-        const id = hitCardIdByX(evt.clientX) || btn.dataset.card;
+        const startIndex = hitCardIndexByX(evt.clientX);
+        if (startIndex < 0) return;
+        const id = cardCenters[startIndex]?.id || hitCardIdByX(evt.clientX);
+        if (!id) return;
         state.dragSelectSession = {
           pointerId: evt.pointerId,
-          mode: state.selectedCardIds.includes(id) ? "remove" : "add",
+          mode: selectedSet.has(id) ? "remove" : "add",
           touched: new Set(),
           changed: 0,
-          lastMoveAt: 0
+          lastMoveAt: 0,
+          lastIndex: startIndex,
+          pendingX: evt.clientX,
+          frameReq: 0
         };
         applyDragSelect(id);
+        flushSelectedState();
         syncPlaySelectedButton(canPlay);
+        document.body.classList.add("dragging-select");
         try {
           handCards.setPointerCapture(evt.pointerId);
         } catch {
@@ -3944,29 +3993,40 @@
       handCards.onpointermove = (evt) => {
         const drag = state.dragSelectSession;
         if (!drag || drag.pointerId !== evt.pointerId) return;
-        const now = performance.now();
-        if (now - drag.lastMoveAt < 16) return;
-        drag.lastMoveAt = now;
-        let changed = false;
-        const beforeId = hitCardIdByX(evt.clientX);
-        if (beforeId) changed = applyDragSelect(beforeId) || changed;
-        const scrolled = edgeAutoScroll(evt.clientX);
-        if (scrolled) {
-          const afterId = hitCardIdByX(evt.clientX);
-          if (afterId) changed = applyDragSelect(afterId) || changed;
-        }
-        if (changed) {
-          syncPlaySelectedButton(canPlay);
-        }
+        drag.pendingX = evt.clientX;
+        if (drag.frameReq) return;
+        drag.frameReq = requestAnimationFrame(() => {
+          const liveDrag = state.dragSelectSession;
+          if (!liveDrag || liveDrag.pointerId !== drag.pointerId) return;
+          liveDrag.frameReq = 0;
+          const now = performance.now();
+          if (now - liveDrag.lastMoveAt < 10) return;
+          liveDrag.lastMoveAt = now;
+          let changed = false;
+          const beforeIdx = hitCardIndexByX(liveDrag.pendingX);
+          if (beforeIdx >= 0) changed = applyDragToIndex(beforeIdx) || changed;
+          const scrolled = edgeAutoScroll(liveDrag.pendingX);
+          if (scrolled) {
+            const afterIdx = hitCardIndexByX(liveDrag.pendingX);
+            if (afterIdx >= 0) changed = applyDragToIndex(afterIdx) || changed;
+          }
+          if (changed) {
+            flushSelectedState();
+            syncPlaySelectedButton(canPlay);
+          }
+        });
       };
 
       const endDrag = (evt) => {
         const drag = state.dragSelectSession;
         if (!drag || drag.pointerId !== evt.pointerId) return;
+        if (drag.frameReq) cancelAnimationFrame(drag.frameReq);
         state.suppressCardClick = true;
         state.dragSelectSession = null;
+        flushSelectedState();
         persistSelectedCards();
         syncPlaySelectedButton(canPlay);
+        document.body.classList.remove("dragging-select");
         try {
           handCards.releasePointerCapture(evt.pointerId);
         } catch {
@@ -4461,6 +4521,7 @@
     });
 
     window.addEventListener("beforeunload", () => {
+      document.body.classList.remove("dragging-select");
       if (state.pollTimer) clearInterval(state.pollTimer);
       if (state.lobbyPollTimer) clearInterval(state.lobbyPollTimer);
       if (state.housekeepingTimer) clearInterval(state.housekeepingTimer);
