@@ -748,6 +748,9 @@
     body.landscape-ui.in-match .seats.table-view {
       width: 100%;
     }
+    #unifiedWindowHost {
+      display: none;
+    }
     body.landscape-ui.in-match.table-core-ui #toggleCoreUiFloatBtn {
       display: inline-flex;
       align-items: center;
@@ -760,17 +763,25 @@
       background: linear-gradient(180deg, rgba(255, 250, 241, .98) 0%, rgba(247, 237, 220, .96) 100%);
     }
     body.landscape-ui.in-match.table-core-ui #roomSeatPanel {
+      position: relative;
       min-height: 74dvh;
       border-bottom: 0;
       padding: 6px;
       z-index: 1;
+    }
+    body.landscape-ui.in-match.table-core-ui #unifiedWindowHost {
+      display: block;
+      position: absolute;
+      inset: 0;
+      z-index: 4;
+      pointer-events: none;
     }
     body.landscape-ui.in-match.table-core-ui .seats.table-view {
       min-height: 72dvh;
       border-color: #3c5f95;
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14), 0 8px 18px rgba(35, 31, 24, .22);
     }
-    body.landscape-ui.in-match.table-core-ui #playedPanel {
+    body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #playedPanel {
       position: absolute;
       left: 14px;
       right: 14px;
@@ -781,19 +792,20 @@
       border-bottom: 0;
       padding: 0;
       z-index: 2;
+      pointer-events: auto;
     }
-    body.landscape-ui.in-match.table-core-ui #playedPanel .played-zone {
+    body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #playedPanel .played-zone {
       padding: 6px 8px;
       border-radius: 10px;
       border: 1px solid rgba(224, 206, 172, .84);
       background: rgba(255, 249, 237, .92);
       box-shadow: 0 6px 16px rgba(52, 42, 26, .18);
     }
-    body.landscape-ui.in-match.table-core-ui #playedNow {
+    body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #playedNow {
       min-height: 80px;
       max-height: 120px;
     }
-    body.landscape-ui.in-match.table-core-ui #gamePanel {
+    body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #gamePanel {
       position: absolute;
       left: 14px;
       right: 14px;
@@ -801,21 +813,22 @@
       min-height: 0;
       padding: 8px 10px;
       z-index: 3;
+      pointer-events: auto;
       background: linear-gradient(180deg, rgba(248, 241, 228, .88) 0%, rgba(244, 234, 214, .95) 100%);
       border-radius: 12px;
       border: 1px solid rgba(210, 187, 146, .86);
       box-shadow: 0 8px 20px rgba(41, 31, 18, .2);
       backdrop-filter: blur(2px);
     }
-    body.landscape-ui.in-match.table-core-ui #gamePanel h2 {
+    body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #gamePanel h2 {
       display: none;
     }
-    body.landscape-ui.in-match.table-core-ui #gameInfo {
+    body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #gameInfo {
       margin-bottom: 4px;
       padding: 8px;
       background: rgba(255, 251, 241, .82);
     }
-    body.landscape-ui.in-match.table-core-ui #handSection {
+    body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #handSection {
       margin-top: 6px !important;
     }
     @media (max-width: 980px) {
@@ -904,7 +917,7 @@
       body.landscape-ui.in-match.table-core-ui .seats.table-view {
         min-height: 74dvh;
       }
-      body.landscape-ui.in-match.table-core-ui #playedPanel {
+      body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #playedPanel {
         left: 8px;
         right: 8px;
         top: 40%;
@@ -913,11 +926,11 @@
         max-height: none;
         padding: 0;
       }
-      body.landscape-ui.in-match.table-core-ui #playedNow {
+      body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #playedNow {
         min-height: 11dvh;
         max-height: 14dvh;
       }
-      body.landscape-ui.in-match.table-core-ui #gamePanel {
+      body.landscape-ui.in-match.table-core-ui #unifiedWindowHost #gamePanel {
         left: 8px;
         right: 8px;
         bottom: 8px;
@@ -1008,6 +1021,7 @@
         <h2>房间与座位</h2>
         <div id="roomInfo" class="small">尚未加入房间</div>
         <div class="seats" id="seatsWrap" style="margin-top: 8px;"></div>
+        <div id="unifiedWindowHost"></div>
         <div class="row" id="roomActions" style="margin-top: 8px;">
           <button id="startBtn" class="primary">开始游戏</button>
           <button id="undoBtn">悔牌</button>
@@ -1181,6 +1195,12 @@
     const copyLinkBtn = document.getElementById("copyLinkBtn");
     const leaveRoomBtn = document.getElementById("leaveRoomBtn");
     const lobbyMsg = document.getElementById("lobbyMsg");
+    const gridRoot = document.querySelector(".grid");
+    const roomSeatPanel = document.getElementById("roomSeatPanel");
+    const unifiedWindowHost = document.getElementById("unifiedWindowHost");
+    const gamePanelEl = document.getElementById("gamePanel");
+    const playedPanelEl = document.getElementById("playedPanel");
+    const rulesPanelEl = document.getElementById("rulesPanel");
     const roomInfo = document.getElementById("roomInfo");
     const seatsWrap = document.getElementById("seatsWrap");
     const startBtn = document.getElementById("startBtn");
@@ -4669,11 +4689,40 @@
       rulesInfo.textContent = modeRulesText(mode);
     }
 
+    function syncUnifiedWindowPanels(useUnified) {
+      if (!gridRoot || !unifiedWindowHost || !gamePanelEl || !playedPanelEl) return;
+      if (useUnified) {
+        if (playedPanelEl.parentElement !== unifiedWindowHost) unifiedWindowHost.appendChild(playedPanelEl);
+        if (gamePanelEl.parentElement !== unifiedWindowHost) unifiedWindowHost.appendChild(gamePanelEl);
+        return;
+      }
+
+      const anchor = rulesPanelEl && rulesPanelEl.parentElement === gridRoot ? rulesPanelEl : null;
+      const bothInGrid = gamePanelEl.parentElement === gridRoot && playedPanelEl.parentElement === gridRoot;
+      if (bothInGrid) {
+        const gameBeforePlayed = !!(gamePanelEl.compareDocumentPosition(playedPanelEl) & Node.DOCUMENT_POSITION_FOLLOWING);
+        const playedBeforeAnchor = !anchor || !!(playedPanelEl.compareDocumentPosition(anchor) & Node.DOCUMENT_POSITION_FOLLOWING);
+        if (gameBeforePlayed && playedBeforeAnchor) return;
+      }
+
+      if (gamePanelEl.parentElement) gamePanelEl.parentElement.removeChild(gamePanelEl);
+      if (playedPanelEl.parentElement) playedPanelEl.parentElement.removeChild(playedPanelEl);
+      if (anchor) {
+        gridRoot.insertBefore(gamePanelEl, anchor);
+        gridRoot.insertBefore(playedPanelEl, anchor);
+      } else {
+        gridRoot.appendChild(gamePanelEl);
+        gridRoot.appendChild(playedPanelEl);
+      }
+    }
+
     function applyLayoutModes() {
-      document.body.classList.toggle("landscape-ui", !!state.landscapeUi);
-      document.body.classList.toggle("table-core-ui", !!state.tableCoreUi);
       const status = state.room?.status || "";
       const inMatch = status === "bidding" || status === "playing" || status === "finished";
+      const useUnified = !!state.landscapeUi && !!state.tableCoreUi && inMatch;
+      syncUnifiedWindowPanels(useUnified);
+      document.body.classList.toggle("landscape-ui", !!state.landscapeUi);
+      document.body.classList.toggle("table-core-ui", !!state.tableCoreUi);
       document.body.classList.toggle("in-match", inMatch);
       if (toggleLandscapeBtn) {
         toggleLandscapeBtn.classList.toggle("active", !!state.landscapeUi);
