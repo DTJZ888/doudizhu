@@ -20,6 +20,20 @@ create table if not exists public.private_hands (
   primary key (room_id, uid)
 );
 
+create table if not exists public.lobby_messages (
+  id bigint generated always as identity primary key,
+  uid uuid not null,
+  nick text not null default '',
+  message text not null,
+  created_at timestamptz not null default now(),
+  check (char_length(trim(message)) > 0),
+  check (char_length(message) <= 200),
+  check (char_length(nick) <= 24)
+);
+
+create index if not exists idx_lobby_messages_created_at
+  on public.lobby_messages(created_at asc);
+
 create or replace function public.touch_updated_at()
 returns trigger
 language plpgsql
@@ -42,6 +56,7 @@ for each row execute function public.touch_updated_at();
 
 alter table public.rooms enable row level security;
 alter table public.private_hands enable row level security;
+alter table public.lobby_messages enable row level security;
 
 -- rooms：所有已登录用户可读写（原型级，便于快速联机）
 drop policy if exists rooms_select_all on public.rooms;
@@ -122,6 +137,22 @@ using (
   )
 );
 
+-- lobby_messages：所有已登录用户可读，用户可发送自己的留言（持久化）
+drop policy if exists lobby_messages_select_all on public.lobby_messages;
+create policy lobby_messages_select_all on public.lobby_messages
+for select to authenticated
+using (true);
+
+drop policy if exists lobby_messages_insert_self on public.lobby_messages;
+create policy lobby_messages_insert_self on public.lobby_messages
+for insert to authenticated
+with check (
+  uid = auth.uid()
+  and char_length(trim(message)) > 0
+  and char_length(message) <= 200
+  and char_length(nick) <= 24
+);
+
 -- 实时订阅（可选，但建议打开）
 do $$
 begin
@@ -133,6 +164,20 @@ begin
       and tablename = 'rooms'
   ) then
     alter publication supabase_realtime add table public.rooms;
+  end if;
+end
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'lobby_messages'
+  ) then
+    alter publication supabase_realtime add table public.lobby_messages;
   end if;
 end
 $$;
