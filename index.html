@@ -166,19 +166,6 @@
       touch-action: pan-y;
       user-select: none;
     }
-    #handCards.multi-row {
-      flex-wrap: wrap;
-      align-items: flex-start;
-      align-content: flex-start;
-      gap: 6px;
-      min-height: 168px;
-      max-height: 346px;
-      overflow-x: hidden;
-      overflow-y: auto;
-      padding: 8px 6px;
-    }
-    #handCards.multi-row.rows-2 { max-height: 244px; }
-    #handCards.multi-row.rows-3 { max-height: 346px; }
     .hand-scroll-wrap {
       margin-top: 6px;
       padding: 0 6px 2px;
@@ -201,14 +188,7 @@
       z-index: 1;
       flex: 0 0 auto;
     }
-    #handCards.multi-row .card-btn {
-      margin-left: 0 !important;
-      margin-top: 0;
-      flex: 0 0 auto;
-    }
     #handCards .card-btn:first-child { margin-left: 0; }
-    body.hand-expanded #handCards .card-btn { margin-left: 4px; }
-    body.hand-expanded #handCards .card-btn:first-child { margin-left: 0; }
     .card-img {
       width: 72px;
       height: 104px;
@@ -217,8 +197,6 @@
       box-shadow: 0 6px 14px rgba(44, 33, 18, .2);
       transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
     }
-    #handCards.multi-row .card-img { width: 68px; height: 98px; }
-    #handCards.multi-row.rows-3 .card-img { width: 62px; height: 90px; }
     .card-btn:hover:not(:disabled) .card-img {
       transform: translateY(-6px);
       box-shadow: 0 12px 20px rgba(42, 33, 19, .24);
@@ -235,7 +213,6 @@
       box-shadow: 0 13px 20px rgba(42, 33, 19, .24);
       outline: 2px solid #c49028;
     }
-    #handCards.multi-row .card-btn.selected .card-img { transform: translateY(-4px); }
     .card-btn.selected { z-index: 30; }
     body.dragging-select .card-img {
       transition: none;
@@ -579,11 +556,8 @@
     body.landscape-ui .panel { padding: 12px; }
     body.landscape-ui #handCards { min-height: 96px; }
     body.landscape-ui .card-img { width: 64px; height: 92px; }
-    body.landscape-ui #handCards.multi-row .card-img { width: 60px; height: 86px; }
-    body.landscape-ui #handCards.multi-row.rows-3 .card-img { width: 56px; height: 80px; }
     body.landscape-ui #handCards .card-btn { margin-left: -26px; }
     body.landscape-ui #handCards .card-btn:first-child { margin-left: 0; }
-    body.landscape-ui.hand-expanded #handCards .card-btn { margin-left: 4px; }
     body.landscape-ui.in-match .grid {
       grid-template-columns: minmax(340px, 1fr) minmax(520px, 1.4fr);
       grid-template-areas:
@@ -613,14 +587,10 @@
       .played-owner-chip { min-width: 76px; padding: 5px 6px; }
       .played-owner-name { font-size: 11px; max-width: 100px; }
       .victory-title { font-size: 23px; }
-      body.hand-expanded .card-img { width: 54px; height: 78px; }
-      body.hand-expanded #handCards .card-btn { margin-left: 3px; }
-      body.hand-expanded #handCards .card-btn:first-child { margin-left: 0; }
     }
     @media (max-height: 560px) and (orientation: landscape) {
       body.landscape-ui .card-img { width: 56px; height: 80px; }
       body.landscape-ui #handCards .card-btn { margin-left: -20px; }
-      body.landscape-ui.hand-expanded #handCards .card-btn { margin-left: 2px; }
     }
     @media (hover: none) and (pointer: coarse) and (orientation: landscape) {
       .card-img {
@@ -669,7 +639,6 @@
       <div class="hero-note">当前重点是联机流程验证与规则体验。</div>
       <div id="globalLayoutTools" class="layout-tools row">
         <button id="toggleLandscapeBtn" type="button">横屏布局：关</button>
-        <button id="toggleHandExpandBtn" type="button">展开手牌：关</button>
       </div>
     </div>
 
@@ -811,7 +780,6 @@
     const SELECTED_KEY_PREFIX = "ddz_sel_";
     const PLAYED_POS_KEY_PREFIX = "ddz_played_pos_";
     const LAYOUT_LANDSCAPE_KEY = "ddz_layout_landscape";
-    const HAND_EXPANDED_KEY = "ddz_layout_hand_expanded";
     const HOUSEKEEP_INTERVAL_MS = 15 * 60 * 1000;
     const HOUSEKEEP_EMPTY_MINUTES = 120;
     const HOUSEKEEP_FINISHED_MINUTES = 360;
@@ -856,8 +824,7 @@
       playedScrollRoom: "",
       suppressCardClick: false,
       dragSelectSession: null,
-      landscapeUi: readStoredBool(LAYOUT_LANDSCAPE_KEY, false),
-      handExpanded: readStoredBool(HAND_EXPANDED_KEY, false)
+      landscapeUi: readStoredBool(LAYOUT_LANDSCAPE_KEY, false)
     };
 
     const authStatus = document.getElementById("authStatus");
@@ -901,7 +868,6 @@
     const handScrollWrap = document.getElementById("handScrollWrap");
     const handScrollBar = document.getElementById("handScrollBar");
     const toggleLandscapeBtn = document.getElementById("toggleLandscapeBtn");
-    const toggleHandExpandBtn = document.getElementById("toggleHandExpandBtn");
     const eventLog = document.getElementById("eventLog");
     const lobbyMessageInput = document.getElementById("lobbyMessageInput");
     const sendLobbyMessageBtn = document.getElementById("sendLobbyMessageBtn");
@@ -3814,12 +3780,6 @@
 
     function updateHandScrollBar() {
       if (!handCards || !handScrollWrap || !handScrollBar) return;
-      if (handCards.classList.contains("multi-row")) {
-        handScrollWrap.style.display = "none";
-        handScrollBar.max = "0";
-        handScrollBar.value = "0";
-        return;
-      }
       const max = Math.max(0, Math.round(handCards.scrollWidth - handCards.clientWidth));
       if (max <= 1) {
         handScrollWrap.style.display = "none";
@@ -3852,7 +3812,6 @@
       const cards = sortedHandCards(state.hand);
       if (!cards.length) {
         handCards.innerHTML = '<span class="small muted">暂无手牌</span>';
-        handCards.classList.remove("multi-row", "rows-2", "rows-3");
         handCards.onpointerdown = null;
         handCards.onpointermove = null;
         handCards.onpointerup = null;
@@ -3867,19 +3826,6 @@
       const canPlay = state.room?.status === "playing"
         && state.room?.game?.bottomClaimed
         && getMySeat(state.room) === state.room?.game?.turnSeat;
-
-      const handWidth = Math.max(
-        Math.round(handCards.clientWidth || handCards.getBoundingClientRect().width || 0),
-        320
-      );
-      const compactHand = handWidth <= 520;
-      let rowCount = 1;
-      if (cards.length >= (compactHand ? 14 : 18)) rowCount = 2;
-      if (cards.length >= (compactHand ? 22 : 30)) rowCount = 3;
-      handCards.classList.toggle("multi-row", rowCount > 1);
-      handCards.classList.toggle("rows-2", rowCount === 2);
-      handCards.classList.toggle("rows-3", rowCount === 3);
-      const isMultiRow = rowCount > 1;
 
       handCards.innerHTML = cards.map((c, idx) => {
         const id = escapeHtml(c.id);
@@ -3959,8 +3905,7 @@
 
       const cardCenters = buttons.map((btn) => ({
         id: btn.dataset.card || "",
-        center: btn.offsetLeft + (btn.offsetWidth / 2),
-        centerY: btn.offsetTop + (btn.offsetHeight / 2)
+        center: btn.offsetLeft + (btn.offsetWidth / 2)
       })).filter((v) => !!v.id);
 
       const hitCardIndexByX = (clientX) => {
@@ -3983,26 +3928,6 @@
         const idx = hitCardIndexByX(clientX);
         if (idx < 0) return "";
         return cardCenters[idx]?.id || "";
-      };
-
-      const hitCardIdByPoint = (clientX, clientY) => {
-        const el = document.elementFromPoint(clientX, clientY);
-        const byEl = el?.closest?.("button[data-card]")?.dataset?.card || "";
-        if (byEl) return byEl;
-        if (!cardCenters.length) return "";
-        const rect = handCards.getBoundingClientRect();
-        const x = (clientX - rect.left) + handCards.scrollLeft;
-        const y = (clientY - rect.top) + handCards.scrollTop;
-        let bestId = cardCenters[0].id;
-        let bestDist = Math.hypot(x - cardCenters[0].center, y - cardCenters[0].centerY);
-        for (let i = 1; i < cardCenters.length; i += 1) {
-          const d = Math.hypot(x - cardCenters[i].center, y - cardCenters[i].centerY);
-          if (d < bestDist) {
-            bestDist = d;
-            bestId = cardCenters[i].id;
-          }
-        }
-        return bestId;
       };
 
       const applyDragToIndex = (targetIndex) => {
@@ -4043,10 +3968,8 @@
       handCards.onpointerdown = (evt) => {
         if (!canPlay) return;
         if (evt.pointerType === "mouse") return;
-        const startIndex = isMultiRow ? -1 : hitCardIndexByX(evt.clientX);
-        const id = isMultiRow
-          ? hitCardIdByPoint(evt.clientX, evt.clientY)
-          : (cardCenters[startIndex]?.id || hitCardIdByX(evt.clientX));
+        const startIndex = hitCardIndexByX(evt.clientX);
+        const id = cardCenters[startIndex]?.id || hitCardIdByX(evt.clientX);
         if (!id) return;
         state.dragSelectSession = {
           pointerId: evt.pointerId,
@@ -4056,14 +3979,12 @@
           lastMoveAt: 0,
           lastIndex: startIndex,
           pendingX: evt.clientX,
-          pendingY: evt.clientY,
           frameReq: 0,
           startX: evt.clientX,
           startY: evt.clientY,
           startCardId: id,
           isDragging: false,
-          captured: false,
-          isMultiRow
+          captured: false
         };
         evt.preventDefault();
       };
@@ -4074,12 +3995,8 @@
         const dx = Math.abs(evt.clientX - drag.startX);
         const dy = Math.abs(evt.clientY - drag.startY);
         if (!drag.isDragging) {
-          if (drag.isMultiRow) {
-            if (dx < 8 && dy < 8) return;
-          } else {
-            if (dx < 12 && dy < 10) return;
-            if (dx < dy * 1.05) return;
-          }
+          if (dx < 12 && dy < 10) return;
+          if (dx < dy * 1.05) return;
           drag.isDragging = true;
           applyDragSelect(drag.startCardId);
           flushSelectedState();
@@ -4093,7 +4010,6 @@
           }
         }
         drag.pendingX = evt.clientX;
-        drag.pendingY = evt.clientY;
         if (drag.frameReq) return;
         drag.frameReq = requestAnimationFrame(() => {
           const liveDrag = state.dragSelectSession;
@@ -4103,17 +4019,12 @@
           if (now - liveDrag.lastMoveAt < 10) return;
           liveDrag.lastMoveAt = now;
           let changed = false;
-          if (liveDrag.isMultiRow) {
-            const hitId = hitCardIdByPoint(liveDrag.pendingX, liveDrag.pendingY);
-            if (hitId) changed = applyDragSelect(hitId) || changed;
-          } else {
-            const beforeIdx = hitCardIndexByX(liveDrag.pendingX);
-            if (beforeIdx >= 0) changed = applyDragToIndex(beforeIdx) || changed;
-            const scrolled = edgeAutoScroll(liveDrag.pendingX);
-            if (scrolled) {
-              const afterIdx = hitCardIndexByX(liveDrag.pendingX);
-              if (afterIdx >= 0) changed = applyDragToIndex(afterIdx) || changed;
-            }
+          const beforeIdx = hitCardIndexByX(liveDrag.pendingX);
+          if (beforeIdx >= 0) changed = applyDragToIndex(beforeIdx) || changed;
+          const scrolled = edgeAutoScroll(liveDrag.pendingX);
+          if (scrolled) {
+            const afterIdx = hitCardIndexByX(liveDrag.pendingX);
+            if (afterIdx >= 0) changed = applyDragToIndex(afterIdx) || changed;
           }
           if (changed) {
             flushSelectedState();
@@ -4129,13 +4040,8 @@
         if (!drag.isDragging) {
           setSelected(drag.startCardId, drag.mode === "add");
         } else {
-          if (drag.isMultiRow) {
-            const finalId = hitCardIdByPoint(evt.clientX, evt.clientY);
-            if (finalId) applyDragSelect(finalId);
-          } else {
-            const finalIdx = hitCardIndexByX(evt.clientX);
-            if (finalIdx >= 0) applyDragToIndex(finalIdx);
-          }
+          const finalIdx = hitCardIndexByX(evt.clientX);
+          if (finalIdx >= 0) applyDragToIndex(finalIdx);
         }
         state.suppressCardClick = true;
         state.dragSelectSession = null;
@@ -4373,17 +4279,12 @@
 
     function applyLayoutModes() {
       document.body.classList.toggle("landscape-ui", !!state.landscapeUi);
-      document.body.classList.toggle("hand-expanded", !!state.handExpanded);
       const status = state.room?.status || "";
       const inMatch = status === "bidding" || status === "playing" || status === "finished";
       document.body.classList.toggle("in-match", inMatch);
       if (toggleLandscapeBtn) {
         toggleLandscapeBtn.classList.toggle("active", !!state.landscapeUi);
         toggleLandscapeBtn.textContent = state.landscapeUi ? "横屏布局：开" : "横屏布局：关";
-      }
-      if (toggleHandExpandBtn) {
-        toggleHandExpandBtn.classList.toggle("active", !!state.handExpanded);
-        toggleHandExpandBtn.textContent = state.handExpanded ? "展开手牌：开" : "展开手牌：关";
       }
     }
 
@@ -4621,11 +4522,6 @@
     toggleLandscapeBtn.addEventListener("click", () => {
       state.landscapeUi = !state.landscapeUi;
       localStorage.setItem(LAYOUT_LANDSCAPE_KEY, state.landscapeUi ? "1" : "0");
-      render();
-    });
-    toggleHandExpandBtn.addEventListener("click", () => {
-      state.handExpanded = !state.handExpanded;
-      localStorage.setItem(HAND_EXPANDED_KEY, state.handExpanded ? "1" : "0");
       render();
     });
     handScrollBar.addEventListener("input", () => {
