@@ -201,13 +201,13 @@
     }
     .seats.table-view .seat[data-slot="left"] {
       left: 8px;
-      top: 44%;
+      top: 32%;
       transform: translateY(-50%);
       width: min(28%, 210px);
     }
     .seats.table-view .seat[data-slot="right"] {
       right: 8px;
-      top: 44%;
+      top: 32%;
       transform: translateY(-50%);
       width: min(28%, 210px);
     }
@@ -291,11 +291,12 @@
     }
     .table-center-dock {
       position: absolute;
-      left: 14%;
-      right: 14%;
-      top: 40%;
-      transform: translateY(-50%);
-      z-index: 4;
+      left: 16%;
+      right: 16%;
+      top: 34%;
+      bottom: 228px;
+      z-index: 3;
+      display: flex;
     }
     .table-center-dock > #playedPanel {
       width: 100%;
@@ -304,6 +305,8 @@
       padding: 0;
       box-shadow: none;
       background: transparent;
+      min-height: 0;
+      display: flex;
     }
     .table-center-dock > #playedPanel h2 {
       display: none;
@@ -314,10 +317,15 @@
       border: 1px solid rgba(224, 206, 172, .9);
       background: rgba(255, 249, 237, .95);
       box-shadow: 0 6px 16px rgba(52, 42, 26, .18);
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
     }
     .table-center-dock > #playedPanel #playedNow {
-      min-height: 96px;
-      max-height: 140px;
+      min-height: 0;
+      max-height: none;
+      flex: 1 1 auto;
     }
     .seat-play-dock {
       margin-top: 8px;
@@ -870,14 +878,15 @@
       display: none;
     }
     body.landscape-ui.in-match.table-core-ui .seats.table-view {
-      min-height: 42dvh;
+      min-height: 62dvh;
       border-color: #3c5f95;
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14), 0 8px 18px rgba(35, 31, 24, .22);
     }
     body.landscape-ui.in-match.table-core-ui .table-center-dock {
-      left: 12%;
-      right: 12%;
-      top: 43%;
+      left: 14%;
+      right: 14%;
+      top: 35%;
+      bottom: 236px;
     }
     body.landscape-ui.in-match.table-core-ui .table-last-play {
       display: none;
@@ -954,6 +963,7 @@
       body.landscape-ui.in-match .seats.table-view .seat[data-slot="left"],
       body.landscape-ui.in-match .seats.table-view .seat[data-slot="right"] {
         width: min(26%, 180px);
+        top: 30%;
       }
       body.landscape-ui.in-match .seats.table-view .seat[data-slot="bottom"] {
         width: min(96%, 760px);
@@ -963,13 +973,14 @@
         padding: 6px 8px;
       }
       body.landscape-ui.in-match .table-center-dock {
-        left: 10%;
-        right: 10%;
-        top: 44%;
+        left: 12%;
+        right: 12%;
+        top: 36%;
+        bottom: 214px;
       }
       body.landscape-ui.in-match .table-center-dock > #playedPanel #playedNow {
-        min-height: 10dvh;
-        max-height: 16dvh;
+        min-height: 0;
+        max-height: none;
       }
       body.landscape-ui.in-match .seat-play-dock > #gamePanel {
         padding: 6px 6px;
@@ -981,12 +992,13 @@
         min-height: auto;
       }
       body.landscape-ui.in-match.table-core-ui .seats.table-view {
-        min-height: 38dvh;
+        min-height: 60dvh;
       }
       body.landscape-ui.in-match.table-core-ui .table-center-dock {
-        left: 9%;
-        right: 9%;
-        top: 45%;
+        left: 11%;
+        right: 11%;
+        top: 37%;
+        bottom: 206px;
       }
       .card-img {
         transition: transform .08s ease;
@@ -4654,9 +4666,14 @@
       }
 
       const mode = roomMode(room);
-      const limitN = playedWindowLimit(room);
+      const coreOn = !!state.landscapeUi
+        && !!state.tableCoreUi
+        && (room.status === "playing" || room.status === "bidding" || room.status === "finished");
+      const limitN = coreOn ? 1 : playedWindowLimit(room);
       if (playedTitle) {
-        if (room.status === "playing") {
+        if (coreOn) {
+          playedTitle.textContent = "中区出牌";
+        } else if (room.status === "playing") {
           playedTitle.textContent = `最近 ${limitN} 手（轮替显示）`;
         } else if (room.status === "finished") {
           playedTitle.textContent = `对局结束回顾（最近 ${limitN} 手）`;
@@ -4665,7 +4682,7 @@
         }
       }
       let extra = "";
-      if (mode === MODE_POKER_B4 && room.game.teamCall?.resolved && room.game.teamCall?.chosenCardId) {
+      if (mode === MODE_POKER_B4 && room.game.teamCall?.resolved && room.game.teamCall?.chosenCardId && !coreOn) {
         const ownerSeat = room.game.teamCall?.ownerSeat;
         const ownerUid = room.game.teamCall?.ownerUid || room.seats?.[String(ownerSeat)];
         const ownerName = escapeHtml(ownerUid ? nameOf(ownerUid) : (Number.isInteger(ownerSeat) ? `${ownerSeat + 1}号位` : "未知"));
@@ -4725,7 +4742,7 @@
       const newIdSet = new Set(prevIds.length ? curIds.filter((id) => !prevIds.includes(id)) : []);
       state.playedRenderIds = curIds;
       state.playedRenderRoom = state.roomId || "";
-      const tip = trickPlays.length > shownPlays.length
+      const tip = (!coreOn && trickPlays.length > shownPlays.length)
         ? `<div class="small muted">共 ${trickPlays.length} 手，当前轮替显示最近 ${shownPlays.length} 手</div>`
         : "";
 
@@ -4736,6 +4753,24 @@
         const cards = (Array.isArray(play.cards) ? play.cards : [play]).map((x) => normalizeCard(x)).filter(Boolean);
         if (!cards.length) {
           return `<div class="small muted">第 ${offset + idx + 1} 手：${who}（数据不可用）</div>`;
+        }
+        if (coreOn) {
+          return `
+            <div class="played-turn${enterClass}">
+              <div class="small">${who}</div>
+              <div class="played-turn-cards">
+                ${cards.map((card) => {
+                  const src = cardImageUrl(card);
+                  const alt = escapeHtml(cardPrettyName(card));
+                  return `
+                    <div class="played-chip">
+                      <img class="played-card" src="${src}" alt="${alt}" />
+                    </div>
+                  `;
+                }).join("")}
+              </div>
+            </div>
+          `;
         }
         return `
           <div class="played-turn${enterClass}">
