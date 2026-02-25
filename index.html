@@ -319,7 +319,6 @@
         <div id="roomInfo" class="small">尚未加入房间</div>
         <div class="seats" id="seatsWrap" style="margin-top: 8px;"></div>
         <div class="row" style="margin-top: 8px;">
-          <button id="toggleReadyBtn">准备</button>
           <button id="startBtn" class="primary">开始游戏</button>
           <button id="undoBtn">悔牌</button>
           <button id="restartBtn" class="warn">重开</button>
@@ -418,7 +417,6 @@
     const lobbyMsg = document.getElementById("lobbyMsg");
     const roomInfo = document.getElementById("roomInfo");
     const seatsWrap = document.getElementById("seatsWrap");
-    const toggleReadyBtn = document.getElementById("toggleReadyBtn");
     const startBtn = document.getElementById("startBtn");
     const undoBtn = document.getElementById("undoBtn");
     const restartBtn = document.getElementById("restartBtn");
@@ -1276,23 +1274,14 @@
           const key = String(s);
           if (room.state.seats[key] === state.uid) room.state.seats[key] = null;
         }
+        delete room.state.ready[state.uid];
 
         if (targetSeat !== null) {
           const key = String(targetSeat);
           if (room.state.seats[key]) return false;
           room.state.seats[key] = state.uid;
+          room.state.ready[state.uid] = true;
         }
-      });
-    }
-
-    async function toggleReady() {
-      if (!state.roomId) return;
-      await mutateRoom(state.roomId, (room) => {
-        ensureRoomStateShape(room);
-        if (room.status !== "lobby") return false;
-        const mySeat = getMySeat(mapRoomRow(room));
-        if (mySeat === null) return false;
-        room.state.ready[state.uid] = !room.state.ready[state.uid];
       });
     }
 
@@ -1347,7 +1336,6 @@
         }
 
         seatUids = activeSeats.map((seat) => room.state.seats[String(seat)]);
-        if (seatUids.some((uid) => !room.state.ready[uid])) return false;
 
         let dealPool = deck;
         if (mode === MODE_POKER_A2) {
@@ -1556,6 +1544,7 @@
         const liveSeats = (room.state.game.activeSeats || activeSeatsFrom(room.state.seats, room.state.seatCount))
           .filter((seat) => !!room.state.seats[String(seat)]);
         const lastPlay = room.state.game.lastPlay;
+        let didCapture = false;
 
         if (liveMode === MODE_POKER_A4 || liveMode === MODE_POKER_A2 || liveMode === MODE_SOLO_VALIDATE) {
           const capture = canCaptureInPokerA(analyzed, lastPlay, liveSeats, mySeat);
@@ -1564,6 +1553,7 @@
           room.state.publicCounts[state.uid] = Math.max((room.state.publicCounts[state.uid] || 0) - analyzed.cards.length, 0);
 
           if (capture) {
+            didCapture = true;
             const rawCards = Array.isArray(lastPlay?.cards) ? lastPlay.cards : [lastPlay];
             capturedCards = rawCards.map((x) => normalizeCard(x)).filter(Boolean);
             room.state.publicCounts[state.uid] += capturedCards.length;
@@ -1591,18 +1581,23 @@
         room.state.game.trickLeaderSeat = mySeat;
         room.state.game.passStreak = 0;
 
-        const afterHand = clone(nextHand);
-        for (const card of capturedCards) afterHand[card.id] = card;
-        room.state.game.undo = {
-          kind: "play",
-          actorUid: state.uid,
-          actorSeat: mySeat,
-          beforeHand,
-          afterHand,
-          prevStatus,
-          prevPublicCounts,
-          prevGame
-        };
+        const bombRelated = isBombType(analyzed.type) || isBombType(lastPlay?.type) || didCapture;
+        if (!bombRelated) {
+          const afterHand = clone(nextHand);
+          for (const card of capturedCards) afterHand[card.id] = card;
+          room.state.game.undo = {
+            kind: "play",
+            actorUid: state.uid,
+            actorSeat: mySeat,
+            beforeHand,
+            afterHand,
+            prevStatus,
+            prevPublicCounts,
+            prevGame
+          };
+        } else {
+          room.state.game.undo = null;
+        }
 
         if (room.state.publicCounts[state.uid] === 0) {
           room.status = "finished";
@@ -1757,7 +1752,6 @@
         const uid = room.seats?.[String(seat)] || null;
         const isMine = uid && uid === state.uid;
         const label = uid ? escapeHtml(nameOf(uid)) : "空位";
-        const ready = uid && room.ready?.[uid] ? "<span class='pill'>已准备</span>" : "";
         const landlord = room.game?.landlordSeat === seat ? "<span class='pill'>地主</span>" : "";
         const turn = room.game?.turnSeat === seat && room.status === "playing" ? "<span class='pill'>出牌中</span>" : "";
         const count = uid ? `<div class='small'>剩余牌：${room.publicCounts?.[uid] ?? "-"}</div>` : "";
@@ -1770,7 +1764,7 @@
           <div class="seat ${mySeat === seat ? "you" : ""} ${turnClass}">
             <div><strong>${seat + 1} 号位</strong></div>
             <div style="margin-top: 4px;">${label}</div>
-            <div style="margin-top: 6px;">${ready}${landlord}${turn}</div>
+            <div style="margin-top: 6px;">${landlord}${turn}</div>
             <div style="margin-top: 6px;">${count}</div>
             <div style="margin-top: 8px;">${btn}</div>
           </div>
@@ -1883,7 +1877,7 @@
         gameInfo.innerHTML = `
           <div>阶段：已结束</div>
           <div>胜者：${escapeHtml(nameOf(winnerUid))}</div>
-          <div class="small">房主可重新开始（${range} 人入座并准备）</div>
+          <div class="small">房主可重新开始（${range} 人选座后可直接开局）</div>
         `;
         bidWrap.style.display = "none";
         playActions.style.display = "none";
@@ -1927,12 +1921,8 @@
     function renderButtons() {
       const room = state.room;
       const mySeat = getMySeat(room);
-      const isReady = room?.ready?.[state.uid];
       const isHost = room?.hostUid === state.uid;
       const mode = roomMode(room);
-
-      toggleReadyBtn.disabled = !(room && room.status === "lobby" && mySeat !== null);
-      toggleReadyBtn.textContent = isReady ? "取消准备" : "准备";
 
       const activeSeats = room ? activeSeatsFrom(room.seats, room.seatCount) : [];
       const seatOk = mode === MODE_POKER_A4
@@ -1942,8 +1932,7 @@
           : (mode === MODE_SOLO_VALIDATE
           ? activeSeats.length === 1
           : (activeSeats.length >= TABLE_MIN_PLAYERS && activeSeats.length <= TABLE_MAX_PLAYERS)));
-      const readyOk = seatOk && activeSeats.every((seat) => room.ready?.[room.seats[String(seat)]]);
-      startBtn.disabled = !(room && isHost && room.status === "lobby" && readyOk);
+      startBtn.disabled = !(room && isHost && room.status === "lobby" && seatOk);
       hostTakeoverBtn.disabled = !(room && room.members && !room.members[room.hostUid] && room.members[state.uid]);
       playSelectedBtn.disabled = !(room && room.status === "playing" && mySeat === room.game?.turnSeat && room.game?.bottomClaimed && state.selectedCardIds.length > 0);
       passBtn.disabled = !(room && room.status === "playing" && mySeat === room.game?.turnSeat && room.game?.lastPlay && room.game?.trickLeaderSeat !== mySeat);
@@ -2108,10 +2097,6 @@
       const link = `${location.origin}${location.pathname}?room=${state.roomId}`;
       await navigator.clipboard.writeText(link);
       showMsg("邀请链接已复制");
-    });
-
-    toggleReadyBtn.addEventListener("click", async () => {
-      await toggleReady();
     });
 
     startBtn.addEventListener("click", async () => {
