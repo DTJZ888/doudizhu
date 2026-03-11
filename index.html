@@ -63,7 +63,11 @@
     .wrap {
       max-width: 1100px;
       margin: 0 auto;
-      padding: 16px;
+      padding:
+        calc(16px + env(safe-area-inset-top))
+        calc(16px + env(safe-area-inset-right))
+        calc(16px + env(safe-area-inset-bottom))
+        calc(16px + env(safe-area-inset-left));
       display: grid;
       gap: 12px;
     }
@@ -132,8 +136,8 @@
     }
     #toggleCoreUiFloatBtn {
       position: fixed;
-      top: 10px;
-      right: 10px;
+      top: max(10px, env(safe-area-inset-top));
+      right: max(10px, env(safe-area-inset-right));
       z-index: 950;
       display: none;
       border-radius: 999px;
@@ -918,7 +922,13 @@
     }
     @media (max-width: 680px) {
       h1 { font-size: 17px; }
-      .wrap { padding: 12px; }
+      .wrap {
+        padding:
+          calc(12px + env(safe-area-inset-top))
+          calc(12px + env(safe-area-inset-right))
+          calc(12px + env(safe-area-inset-bottom))
+          calc(12px + env(safe-area-inset-left));
+      }
       .panel { padding: 12px; }
       .card-img { width: 62px; height: 90px; }
       .card-btn { margin-left: -30px; }
@@ -1688,6 +1698,13 @@
       return roomLike?.state?.gameMode || roomLike?.gameMode || MODE_CLASSIC;
     }
 
+    function isPokerMode(mode) {
+      return mode === MODE_POKER_A4
+        || mode === MODE_POKER_A2
+        || mode === MODE_POKER_B4
+        || mode === MODE_SOLO_VALIDATE;
+    }
+
     function playedWindowLimit(roomLike) {
       const mode = roomMode(roomLike);
       if (mode === MODE_SOLO_VALIDATE) return 1;
@@ -1886,6 +1903,46 @@
         game: s.game || null,
         revision: row.revision
       };
+    }
+
+    function roomLikeToRow(roomLike, roomId = state.roomId) {
+      if (!roomLike || !roomId) return null;
+      return {
+        room_id: roomId,
+        host_uid: roomLike.hostUid,
+        status: roomLike.status,
+        max_members: roomLike.maxMembers || 9,
+        state: {
+          gameMode: roomLike.gameMode || MODE_CLASSIC,
+          seatCount: roomLike.seatCount || TABLE_SEAT_COUNT,
+          members: clone(roomLike.members || {}),
+          seats: clone(roomLike.seats || {}),
+          ready: clone(roomLike.ready || {}),
+          publicCounts: clone(roomLike.publicCounts || {}),
+          game: clone(roomLike.game || null)
+        },
+        revision: Number(roomLike.revision || 0)
+      };
+    }
+
+    function localRoomRowForMutate(rid) {
+      if (!rid || rid !== state.roomId || !state.room) return null;
+      return roomLikeToRow(state.room, rid);
+    }
+
+    function syncLocalRoomFromWork(work, nextRevision) {
+      if (!work || !state.roomId || work.room_id !== state.roomId) return;
+      const rev = Number.isFinite(Number(nextRevision))
+        ? Number(nextRevision)
+        : (Number(work.revision || 0) + 1);
+      state.room = mapRoomRow({
+        room_id: work.room_id,
+        host_uid: work.host_uid,
+        status: work.status,
+        max_members: work.max_members,
+        state: clone(work.state || {}),
+        revision: rev
+      });
     }
 
     function getMySeat(room) {
@@ -2123,6 +2180,79 @@
       return false;
     }
 
+    function evaluateSelectedPlay(room = state.room, handMap = state.hand, selectedIds = state.selectedCardIds) {
+      const ids = [...new Set((selectedIds || []).map((id) => String(id || "")))]
+        .filter((id) => !!handMap?.[id]);
+      if (!ids.length) return { ok: false, reason: "请先选择要出的牌", selectedIds: [] };
+
+      const mode = roomMode(room);
+      const cards = ids.map((id) => handMap[id]).filter(Boolean);
+      const analyzed = isPokerMode(mode) ? analyzePokerA(cards) : analyzeClassic(cards);
+      if (!analyzed.ok) {
+        return { ok: false, reason: analyzed.reason || "牌型无效", selectedIds: ids, analyzed, mode };
+      }
+
+      if (!room || room.status !== "playing" || !room.game) {
+        return { ok: false, reason: "当前不在出牌阶段", selectedIds: ids, analyzed, mode };
+      }
+      if (!room.game.bottomClaimed) {
+        return { ok: false, reason: "底牌流程未完成", selectedIds: ids, analyzed, mode };
+      }
+
+      const mySeat = getMySeat(room);
+      if (mySeat === null) {
+        return { ok: false, reason: "你尚未入座，无法出牌", selectedIds: ids, analyzed, mode };
+      }
+      if (room.game.turnSeat !== mySeat) {
+        return { ok: false, reason: "尚未轮到你出牌", selectedIds: ids, analyzed, mode, mySeat };
+      }
+
+      const liveMode = room.game.mode || room.gameMode || MODE_CLASSIC;
+      if (liveMode !== mode) {
+        return { ok: false, reason: "房间模式已更新，请稍后重试", selectedIds: ids, analyzed, mode, mySeat };
+      }
+
+      const liveSeats = (room.game.activeSeats || activeSeatsFrom(room.seats, room.seatCount))
+        .filter((seat) => !!room.seats[String(seat)]);
+      const lastPlay = room.game.lastPlay;
+
+      if (isPokerMode(liveMode)) {
+        const capture = canCaptureInPokerA(analyzed, lastPlay, liveSeats, mySeat);
+        if (!capture && !canBeatPokerA(analyzed, lastPlay, mySeat)) {
+          return { ok: false, reason: "当前牌无法压过上家", selectedIds: ids, analyzed, mode, mySeat };
+        }
+        return { ok: true, selectedIds: ids, analyzed, mode, mySeat, capture };
+      }
+
+      if (!canBeatClassic(analyzed, lastPlay, mySeat)) {
+        return { ok: false, reason: "当前牌无法压过上家", selectedIds: ids, analyzed, mode, mySeat };
+      }
+      return { ok: true, selectedIds: ids, analyzed, mode, mySeat, capture: false };
+    }
+
+    function evaluatePassAction(room = state.room) {
+      if (!room || room.status !== "playing" || !room.game) {
+        return { ok: false, reason: "当前不在出牌阶段" };
+      }
+      if (!room.game.bottomClaimed) {
+        return { ok: false, reason: "底牌流程未完成" };
+      }
+      const mySeat = getMySeat(room);
+      if (mySeat === null) {
+        return { ok: false, reason: "你尚未入座，无法过牌" };
+      }
+      if (room.game.turnSeat !== mySeat) {
+        return { ok: false, reason: "尚未轮到你过牌" };
+      }
+      if (!room.game.lastPlay) {
+        return { ok: false, reason: "当前无可过牌目标" };
+      }
+      if (room.game.trickLeaderSeat === mySeat) {
+        return { ok: false, reason: "你是本轮领出者，不能过牌" };
+      }
+      return { ok: true, mySeat };
+    }
+
     function makeDeck() {
       const suits = ["S", "H", "C", "D"];
       const ranks = ["3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2"];
@@ -2285,13 +2415,21 @@
       if (!supabase || !rid) return { committed: false, reason: "bad_request" };
 
       for (let i = 0; i < retries; i += 1) {
-        const { data: row, error: selErr } = await supabase
-          .from("rooms")
-          .select("*")
-          .eq("room_id", rid)
-          .maybeSingle();
-
-        if (selErr) throw selErr;
+        let usedLocal = false;
+        let row = null;
+        if (i === 0) {
+          row = localRoomRowForMutate(rid);
+          usedLocal = !!row;
+        }
+        if (!row) {
+          const { data, error: selErr } = await supabase
+            .from("rooms")
+            .select("*")
+            .eq("room_id", rid)
+            .maybeSingle();
+          if (selErr) throw selErr;
+          row = data;
+        }
         if (!row) return { committed: false, reason: "not_found" };
 
         const work = {
@@ -2306,7 +2444,10 @@
         ensureRoomStateShape(work);
         const action = mutator(work);
 
-        if (action === false) return { committed: false, reason: "rejected" };
+        if (action === false) {
+          if (usedLocal) continue;
+          return { committed: false, reason: "rejected" };
+        }
 
         if (action === null) {
           const { data: deleted, error: delErr } = await supabase
@@ -2317,16 +2458,20 @@
             .select("room_id");
 
           if (delErr) throw delErr;
-          if (deleted && deleted.length === 1) return { committed: true, deleted: true };
+          if (deleted && deleted.length === 1) {
+            if (rid === state.roomId) state.room = null;
+            return { committed: true, deleted: true, newRevision: null };
+          }
           continue;
         }
 
+        const nextRevision = Number(row.revision || 0) + 1;
         const patch = {
           host_uid: work.host_uid,
           status: work.status,
           max_members: work.max_members,
           state: work.state,
-          revision: row.revision + 1,
+          revision: nextRevision,
           updated_at: new Date().toISOString()
         };
 
@@ -2338,7 +2483,10 @@
           .select("room_id");
 
         if (upErr) throw upErr;
-        if (updated && updated.length === 1) return { committed: true };
+        if (updated && updated.length === 1) {
+          syncLocalRoomFromWork(work, nextRevision);
+          return { committed: true, newRevision: nextRevision };
+        }
       }
 
       return { committed: false, reason: "conflict" };
@@ -2384,12 +2532,21 @@
       const cfg = options || {};
 
       for (let i = 0; i < retries; i += 1) {
-        const { data: row, error: selErr } = await supabase
-          .from("rooms")
-          .select("*")
-          .eq("room_id", rid)
-          .maybeSingle();
-        if (selErr) throw selErr;
+        let usedLocal = false;
+        let row = null;
+        if (i === 0) {
+          row = localRoomRowForMutate(rid);
+          usedLocal = !!row;
+        }
+        if (!row) {
+          const { data, error: selErr } = await supabase
+            .from("rooms")
+            .select("*")
+            .eq("room_id", rid)
+            .maybeSingle();
+          if (selErr) throw selErr;
+          row = data;
+        }
         if (!row) return { committed: false, reason: "not_found" };
 
         const work = {
@@ -2403,7 +2560,10 @@
         ensureRoomStateShape(work);
 
         const action = mutator(work);
-        if (action === false) return { committed: false, reason: "rejected" };
+        if (action === false) {
+          if (usedLocal) continue;
+          return { committed: false, reason: "rejected" };
+        }
 
         const handUid = action && typeof action === "object" && Object.hasOwn(action, "handUid")
           ? action.handUid
@@ -2427,7 +2587,10 @@
           p_hand_cards: handCards
         });
 
-        if (out.committed) return { committed: true };
+        if (out.committed) {
+          syncLocalRoomFromWork(work, out.newRevision ?? (Number(row.revision || 0) + 1));
+          return { committed: true, newRevision: out.newRevision ?? null };
+        }
         if (out.reason === "conflict") continue;
         return { committed: false, reason: out.reason || "rejected" };
       }
@@ -2959,9 +3122,14 @@
 
       if (!tx.committed) return;
       if (!seatUids.length || !hands) return;
+      render();
 
       try {
         await Promise.all(seatUids.map((uid) => writeHand(uid, hands[uid])));
+        state.hand = hands[state.uid] ? clone(hands[state.uid]) : {};
+        state.selectedCardIds = [];
+        persistSelectedCards();
+        render();
         if (autoAiCount > 0) log(`已自动补位 ${autoAiCount} 个 AI 玩家`);
         if (mode === MODE_POKER_A4) {
           log("发牌完成，进入4人扑克A出牌阶段");
@@ -2983,8 +3151,27 @@
       const bidVal = Number(points);
       if (![0, 1, 2, 3].includes(bidVal)) return;
       if (!state.roomId) return;
+      const room = state.room;
+      if (!room || room.status !== "bidding" || !room.game?.bid || roomMode(room) !== MODE_CLASSIC) {
+        showMsg("当前不可叫分", true);
+        return;
+      }
+      const mySeat = getMySeat(room);
+      if (mySeat === null) {
+        showMsg("你尚未入座，无法叫分", true);
+        return;
+      }
+      if (room.game.bid.currentSeat !== mySeat) {
+        showMsg("尚未轮到你叫分", true);
+        return;
+      }
+      if (room.game.bid.bids?.[String(mySeat)] !== null) {
+        showMsg("本轮你已叫分", true);
+        return;
+      }
 
-      await mutateRoom(state.roomId, (room) => {
+      const tx = await mutateRoom(state.roomId, (roomWork) => {
+        const room = roomWork;
         ensureRoomStateShape(room);
         if (room.status !== "bidding" || !room.state.game || !room.state.game.bid) return false;
         if ((room.state.game.mode || room.state.gameMode) !== MODE_CLASSIC) return false;
@@ -3025,6 +3212,11 @@
         room.state.game.bottomClaimed = false;
         room.state.game.updatedAt = Date.now();
       });
+      if (!tx.committed) {
+        showMsg(`叫分失败：${atomicReasonText(tx.reason)}`, true);
+        return;
+      }
+      render();
     }
 
     async function hostGrantBottomIfNeeded() {
@@ -3111,6 +3303,7 @@
       }
       showMsg("已确认模式B队友牌");
       log("黑桃A玩家已完成模式B队友牌选择");
+      render();
     }
 
     function finalizeAfterPlay(room, liveMode, liveSeats, actorSeat, actorUid) {
@@ -3661,30 +3854,19 @@
     async function playSelected() {
       if (!state.roomId || !state.room) return;
       const beforeHand = clone(state.hand || {});
-      const selectedIds = [...new Set(state.selectedCardIds)].filter((id) => !!state.hand?.[id]);
-      if (!selectedIds.length) {
-        showMsg("请先选择要出的牌", true);
+      const playCheck = evaluateSelectedPlay();
+      if (!playCheck.ok) {
+        showMsg(playCheck.reason || "出牌条件不满足", true);
         return;
       }
-
-      const mode = roomMode(state.room);
-      const selectedCards = selectedIds.map((id) => state.hand[id]);
-      const analyzed = (mode === MODE_POKER_A4 || mode === MODE_POKER_A2 || mode === MODE_POKER_B4 || mode === MODE_SOLO_VALIDATE)
-        ? analyzePokerA(selectedCards)
-        : analyzeClassic(selectedCards);
-      if (!analyzed.ok) {
-        showMsg(analyzed.reason || "牌型无效", true);
-        return;
-      }
+      const selectedIds = playCheck.selectedIds;
+      const analyzed = playCheck.analyzed;
+      const mode = playCheck.mode;
+      const mySeat = playCheck.mySeat;
 
       const nextHand = clone(state.hand);
       for (const id of selectedIds) delete nextHand[id];
       let finalHand = clone(nextHand);
-      const mySeat = getMySeat(state.room);
-      if (mySeat === null) {
-        showMsg("你尚未入座，无法出牌", true);
-        return;
-      }
       let roomTx;
       try {
         roomTx = await mutateRoomAndHandAtomic(
@@ -3790,12 +3972,17 @@
       state.hand = finalHand;
       state.selectedCardIds = [];
       persistSelectedCards();
+      render();
     }
 
     async function pass() {
       if (!state.roomId) return;
-      const mySeat = getMySeat(state.room);
-      if (mySeat === null) return;
+      const passCheck = evaluatePassAction(state.room);
+      if (!passCheck.ok) {
+        showMsg(passCheck.reason || "当前不可过牌", true);
+        return;
+      }
+      const mySeat = passCheck.mySeat;
       let tx;
       try {
         tx = await mutateRoomAndHandAtomic(
@@ -3839,6 +4026,7 @@
       }
       state.selectedCardIds = [];
       persistSelectedCards();
+      render();
     }
 
     async function undoLastPlay() {
@@ -4335,7 +4523,12 @@
 
     function syncPlaySelectedButton(canPlay) {
       const count = Array.isArray(state.selectedCardIds) ? state.selectedCardIds.length : 0;
-      playSelectedBtn.disabled = !(canPlay && count > 0);
+      let canSubmit = false;
+      if (canPlay && count > 0) {
+        const check = evaluateSelectedPlay();
+        canSubmit = !!check.ok;
+      }
+      playSelectedBtn.disabled = !canSubmit;
       if (clearSelectionBtn) clearSelectionBtn.disabled = count === 0;
       if (selectedCount) selectedCount.textContent = count > 0 ? `已选 ${count} 张` : "未选中";
     }
@@ -4621,6 +4814,8 @@
       const mySeat = getMySeat(room);
       const isHost = room?.hostUid === state.uid;
       const mode = roomMode(room);
+      const playCheck = evaluateSelectedPlay(room, state.hand, state.selectedCardIds);
+      const passCheck = evaluatePassAction(room);
 
       const activeSeats = room ? activeSeatsFrom(room.seats, room.seatCount) : [];
       const seatOk = (mode === MODE_POKER_A4 || mode === MODE_POKER_B4)
@@ -4630,13 +4825,23 @@
           : (mode === MODE_SOLO_VALIDATE
           ? activeSeats.length === 1
           : (activeSeats.length >= TABLE_MIN_PLAYERS && activeSeats.length <= TABLE_MAX_PLAYERS)));
-      startBtn.disabled = !(room && isHost && room.status === "lobby" && mySeat !== null && activeSeats.length >= 1);
+      startBtn.disabled = !(room && isHost && room.status === "lobby" && mySeat !== null && seatOk);
       hostTakeoverBtn.disabled = !(room && room.members && !room.members[room.hostUid] && room.members[state.uid]);
-      playSelectedBtn.disabled = !(room && room.status === "playing" && mySeat === room.game?.turnSeat && room.game?.bottomClaimed && state.selectedCardIds.length > 0);
-      passBtn.disabled = !(room && room.status === "playing" && mySeat === room.game?.turnSeat && room.game?.lastPlay && room.game?.trickLeaderSeat !== mySeat);
+      playSelectedBtn.disabled = !playCheck.ok;
+      passBtn.disabled = !passCheck.ok;
       undoBtn.disabled = !(room && (room.status === "playing" || room.status === "finished") && room.game?.undo && room.game.undo.actorUid === state.uid);
       restartBtn.disabled = !(room && room.hostUid === state.uid);
       closeRoomBtn.disabled = !(room && room.hostUid === state.uid);
+      const canBid = !!(room
+        && room.status === "bidding"
+        && mode === MODE_CLASSIC
+        && mySeat !== null
+        && room.game?.bid
+        && room.game.bid.currentSeat === mySeat
+        && room.game.bid.bids?.[String(mySeat)] === null);
+      bidWrap.querySelectorAll("button[data-bid]").forEach((btn) => {
+        btn.disabled = !canBid;
+      });
       const count = Array.isArray(state.selectedCardIds) ? state.selectedCardIds.length : 0;
       clearSelectionBtn.disabled = count === 0;
       selectedCount.textContent = count > 0 ? `已选 ${count} 张` : "未选中";
