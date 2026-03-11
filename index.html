@@ -4818,14 +4818,7 @@
       const passCheck = evaluatePassAction(room);
 
       const activeSeats = room ? activeSeatsFrom(room.seats, room.seatCount) : [];
-      const seatOk = (mode === MODE_POKER_A4 || mode === MODE_POKER_B4)
-        ? activeSeats.length === 4
-        : (mode === MODE_POKER_A2
-          ? activeSeats.length === 2
-          : (mode === MODE_SOLO_VALIDATE
-          ? activeSeats.length === 1
-          : (activeSeats.length >= TABLE_MIN_PLAYERS && activeSeats.length <= TABLE_MAX_PLAYERS)));
-      startBtn.disabled = !(room && isHost && room.status === "lobby" && mySeat !== null && seatOk);
+      startBtn.disabled = !(room && isHost && room.status === "lobby" && mySeat !== null && activeSeats.length >= 1);
       hostTakeoverBtn.disabled = !(room && room.members && !room.members[room.hostUid] && room.members[state.uid]);
       playSelectedBtn.disabled = !playCheck.ok;
       passBtn.disabled = !passCheck.ok;
